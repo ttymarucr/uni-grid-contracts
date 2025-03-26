@@ -26,20 +26,12 @@ contract GridPositionManagerTest is Test {
         token1 = new MockERC20("Token1", "TK1", 1e24); // 1 million tokens
 
         vm.mockCall(
-            mockPool,
-            abi.encodeWithSelector(IUniswapV3PoolImmutables.token0.selector),
-            abi.encode(address(token0))
+            mockPool, abi.encodeWithSelector(IUniswapV3PoolImmutables.token0.selector), abi.encode(address(token0))
         );
         vm.mockCall(
-            mockPool,
-            abi.encodeWithSelector(IUniswapV3PoolImmutables.token1.selector),
-            abi.encode(address(token1))
+            mockPool, abi.encodeWithSelector(IUniswapV3PoolImmutables.token1.selector), abi.encode(address(token1))
         );
-        vm.mockCall(
-            mockPool,
-            abi.encodeWithSelector(IUniswapV3PoolImmutables.tickSpacing.selector),
-            abi.encode(60)
-        );
+        vm.mockCall(mockPool, abi.encodeWithSelector(IUniswapV3PoolImmutables.tickSpacing.selector), abi.encode(60));
 
         manager = new GridPositionManager(mockPool, mockPositionManager, 5, 20);
     }
@@ -61,9 +53,7 @@ contract GridPositionManagerTest is Test {
         token1.approve(address(manager), token1Amount);
 
         vm.mockCall(
-            mockPositionManager,
-            abi.encodeWithSelector(INonfungiblePositionManager.mint.selector),
-            abi.encode(1, 0, 0)
+            mockPositionManager, abi.encodeWithSelector(INonfungiblePositionManager.mint.selector), abi.encode(1, 0, 0)
         );
 
         manager.createGridPositions(token0Amount, token1Amount);
@@ -79,5 +69,4 @@ contract GridPositionManagerTest is Test {
 
         assertEq(manager.gridPercentage(), newGridPercentage);
     }
-
 }

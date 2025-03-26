@@ -10,21 +10,31 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@uniswap/v3-core/contracts/libraries/TickMath.sol";
 
 contract GridPositionManager is Ownable {
+    struct Position {
+        uint256 tokenId;
+        uint256 tickLower;
+        uint256 tickUpper;
+    }
+
+    Position[] public positions;
+
     IUniswapV3Pool public immutable pool;
     INonfungiblePositionManager public immutable positionManager;
 
     uint256 public gridPercentage;
     uint256 public priceRangePercentage;
+    uint256 public gridStep;
 
-    constructor(address _pool, address _positionManager, uint256 _gridPercentage, uint256 _priceRangePercentage) {
+    constructor(address _pool, address _positionManager, uint256 _priceRangePercentage, uint256 _gridStep) {
         require(_pool != address(0), "Invalid pool address");
         require(_positionManager != address(0), "Invalid position manager address");
-        require(_gridPercentage > 0, "Grid percentage must be greater than 0");
+        require(_priceRangePercentage > 0, "Grid range percentage must be greater than 0");
+        require(_gridStep > 0, "Grid step must be greater than 0");
 
         pool = IUniswapV3Pool(_pool);
         positionManager = INonfungiblePositionManager(_positionManager);
-        gridPercentage = _gridPercentage;
         priceRangePercentage = _priceRangePercentage;
+        gridStep = _gridStep;
     }
 
     function calculateGridPrices(uint256 targetPrice) public view returns (uint256[] memory) {
@@ -33,18 +43,18 @@ contract GridPositionManager is Ownable {
         uint256 lowerPrice = targetPrice - (targetPrice * priceRangePercentage) / 100;
         uint256 upperPrice = targetPrice + (targetPrice * priceRangePercentage) / 100;
 
-        uint256 gridCount = (upperPrice - lowerPrice) / ((targetPrice * gridPercentage) / 100);
+        uint256 gridCount = (upperPrice - lowerPrice) / gridStep;
         require(gridCount > 0, "Grid count must be greater than 0");
 
         uint256[] memory gridPrices = new uint256[](gridCount + 1);
         for (uint256 i = 0; i <= gridCount; i++) {
-            gridPrices[i] = lowerPrice + (i * ((targetPrice * gridPercentage) / 100));
+            gridPrices[i] = lowerPrice + (i * gridStep);
         }
 
         return gridPrices;
     }
 
-    function createGridPositions(uint256 token0Amount, uint256 token1Amount) external onlyOwner {
+    function deposit(uint256 token0Amount, uint256 token1Amount) external onlyOwner {
         require(token0Amount > 0 || token1Amount > 0, "Token0 and Token1 amount must be greater than 0");
         // Fetch the current pool price
         (uint160 sqrtPriceX96,,,,,,) = pool.slot0();
@@ -79,14 +89,35 @@ contract GridPositionManager is Ownable {
                 // middle grid
                 continue;
             }
-            // Logic to create positions on Uniswap V3 using positionManager
-            positionManager.mint(
+
+            int24 tickLower = getTickFromPrice(lowerPrice, 18);
+            int24 tickUpper = getTickFromPrice(upperPrice, 18);
+
+            // Check if the position already exists
+            uint256 existingTokenId = getPositionFromTicks(tickLower, tickUpper);
+            if (existingTokenId > 0) {
+                // Add liquidity to the existing position
+                positionManager.increaseLiquidity(
+                    INonfungiblePositionManager.IncreaseLiquidityParams({
+                        tokenId: existingTokenId,
+                        amount0Desired: amount0Desired,
+                        amount1Desired: amount1Desired,
+                        amount0Min: 0,
+                        amount1Min: 0,
+                        deadline: block.timestamp + 1 hours
+                    })
+                );
+                continue;
+            }
+
+            // Mint position and store the token ID
+            (uint256 tokenId,,,) = positionManager.mint(
                 INonfungiblePositionManager.MintParams({
                     token0: pool.token0(),
                     token1: pool.token1(),
                     fee: pool.fee(),
-                    tickLower: getTickFromPrice(lowerPrice, 18),
-                    tickUpper: getTickFromPrice(upperPrice, 18),
+                    tickLower: tickLower,
+                    tickUpper: tickUpper,
                     amount0Desired: amount0Desired,
                     amount1Desired: amount1Desired,
                     amount0Min: 0,
@@ -95,7 +126,20 @@ contract GridPositionManager is Ownable {
                     deadline: block.timestamp + 1 hours
                 })
             );
+
+            // Store the position in the array
+            positions.push(Position({tokenId: tokenId, tickLower: tickLower, tickUpper: tickUpper}));
         }
+    }
+
+    function updateGridStep(uint256 _newGridStep) external onlyOwner {
+        require(_newGridStep > 0, "Grid step must be greater than 0");
+        gridStep = _newGridStep;
+    }
+
+    function updatePriceRangePercentage(uint256 _newPriceRangePercentage) external onlyOwner {
+        require(_newPriceRangePercentage > 0, "Price range percentage must be greater than 0");
+        priceRangePercentage = _newPriceRangePercentage;
     }
 
     function swapTokens(address token0, address token1, uint256 amount)
@@ -121,6 +165,15 @@ contract GridPositionManager is Ownable {
         token1Amount = swapRouter.exactInputSingle(params);
     }
 
+    function getPositionFromTicks(int24 tickLower, int24 tickUpper) internal view returns (uint256) {
+        for (uint256 i = 0; i < positions.length; i++) {
+            if (positions[i].tickLower == tickLower && positions[i].tickUpper == tickUpper) {
+                return positions[i].tokenId;
+            }
+        }
+        return 0;
+    }
+
     function getTickFromPrice(uint256 price, uint8) internal pure returns (int24) {
         require(price > 0, "Price must be greater than 0");
 
@@ -143,13 +196,32 @@ contract GridPositionManager is Ownable {
         return y;
     }
 
-    function updateGridPercentage(uint256 _newGridPercentage) external onlyOwner {
-        require(_newGridPercentage > 0, "Grid percentage must be greater than 0");
-        gridPercentage = _newGridPercentage;
-    }
+    function withdraw() external onlyOwner {
+        for (uint256 i = 0; i < positions.length; i++) {
+            uint256 tokenId = positions[i].tokenId;
 
-    function updatePriceRangePercentage(uint256 _newPriceRangePercentage) external onlyOwner {
-        require(_newPriceRangePercentage > 0, "Price range percentage must be greater than 0");
-        priceRangePercentage = _newPriceRangePercentage;
+            // Collect fees and remove liquidity
+            (, uint128 liquidity,,,,) = positionManager.positions(tokenId);
+            if (liquidity > 0) {
+                positionManager.decreaseLiquidity(
+                    INonfungiblePositionManager.DecreaseLiquidityParams({
+                        tokenId: tokenId,
+                        liquidity: liquidity,
+                        amount0Min: 0,
+                        amount1Min: 0,
+                        deadline: block.timestamp + 1 hours
+                    })
+                );
+
+                positionManager.collect(
+                    INonfungiblePositionManager.CollectParams({
+                        tokenId: tokenId,
+                        recipient: msg.sender,
+                        amount0Max: type(uint128).max,
+                        amount1Max: type(uint128).max
+                    })
+                );
+            }
+        }
     }
 }
