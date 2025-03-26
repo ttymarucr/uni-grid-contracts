@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: MIT
+pragma abicoder v2;
 pragma solidity ^0.7.0;
 
 import "forge-std/Test.sol";
 import "../src/GridPositionManager.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@uniswap/v3-core/contracts/interfaces/pool/IUniswapV3PoolImmutables.sol";
 
 contract MockERC20 is ERC20 {
     constructor(string memory name, string memory symbol, uint256 initialSupply) ERC20(name, symbol) {
@@ -25,24 +27,24 @@ contract GridPositionManagerTest is Test {
 
         vm.mockCall(
             mockPool,
-            abi.encodeWithSelector(IUniswapV3Pool.token0.selector),
+            abi.encodeWithSelector(IUniswapV3PoolImmutables.token0.selector),
             abi.encode(address(token0))
         );
         vm.mockCall(
             mockPool,
-            abi.encodeWithSelector(IUniswapV3Pool.token1.selector),
+            abi.encodeWithSelector(IUniswapV3PoolImmutables.token1.selector),
             abi.encode(address(token1))
         );
         vm.mockCall(
             mockPool,
-            abi.encodeWithSelector(IUniswapV3Pool.tickSpacing.selector),
+            abi.encodeWithSelector(IUniswapV3PoolImmutables.tickSpacing.selector),
             abi.encode(60)
         );
 
         manager = new GridPositionManager(mockPool, mockPositionManager, 5, 20);
     }
 
-    function testCalculateGridPrices() public {
+    function testCalculateGridPrices() public view {
         uint256 targetPrice = 1000 * 1e18; // Example target price
         uint256[] memory gridPrices = manager.calculateGridPrices(targetPrice);
 
@@ -78,11 +80,4 @@ contract GridPositionManagerTest is Test {
         assertEq(manager.gridPercentage(), newGridPercentage);
     }
 
-    function testUpdateTargetPrice() public {
-        uint256 newTargetPrice = 1500 * 1e18;
-        manager.updateTargetPrice(newTargetPrice);
-
-        // Mocking not needed for this test
-        assertEq(manager.targetPrice(), newTargetPrice);
-    }
 }

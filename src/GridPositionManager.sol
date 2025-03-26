@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: MIT
+pragma abicoder v2;
 pragma solidity ^0.7.0;
 
 import "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
 import "@uniswap/v3-periphery/contracts/interfaces/INonfungiblePositionManager.sol";
+import "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@uniswap/v3-core/contracts/libraries/TickMath.sol";
@@ -83,8 +85,8 @@ contract GridPositionManager is Ownable {
                     token0: pool.token0(),
                     token1: pool.token1(),
                     fee: pool.fee(),
-                    tickLower: getTickFromPrice(lowerPrice, IERC20(pool.token0()).decimals()),
-                    tickUpper: getTickFromPrice(upperPrice, IERC20(pool.token0()).decimals()),
+                    tickLower: getTickFromPrice(lowerPrice, 18),
+                    tickUpper: getTickFromPrice(upperPrice, 18),
                     amount0Desired: amount0Desired,
                     amount1Desired: amount1Desired,
                     amount0Min: 0,
@@ -104,7 +106,8 @@ contract GridPositionManager is Ownable {
         IERC20(token0).approve(address(positionManager), halfToken0Amount);
 
         // Swap half of token0Amount to token1 using Uniswap V3
-        INonfungiblePositionManager.SwapParams memory params = INonfungiblePositionManager.SwapParams({
+        ISwapRouter swapRouter = ISwapRouter(address(positionManager));
+        ISwapRouter.ExactInputSingleParams memory params = ISwapRouter.ExactInputSingleParams({
             tokenIn: token0,
             tokenOut: token1,
             fee: pool.fee(),
@@ -114,17 +117,15 @@ contract GridPositionManager is Ownable {
             amountOutMinimum: 0,
             sqrtPriceLimitX96: 0
         });
-
-        (uint256 amountOut,) = positionManager.swap(params);
-        token1Amount = amountOut;
-        token0Amount -= halfToken0Amount;
+        token0Amount = amount - halfToken0Amount;
+        token1Amount = swapRouter.exactInputSingle(params);
     }
 
-    function getTickFromPrice(uint256 price, uint8 decimals) internal pure returns (int24) {
+    function getTickFromPrice(uint256 price, uint8) internal pure returns (int24) {
         require(price > 0, "Price must be greater than 0");
 
         // Convert price to sqrtPriceX96 format
-        uint160 sqrtPriceX96 = uint160(sqrt(price) * (1 << 96) / decimals);
+        uint160 sqrtPriceX96 = uint160(sqrt(price) * (1 << 96) / 1e18);
 
         // Use TickMath to get the closest tick
         int24 tick = TickMath.getTickAtSqrtRatio(sqrtPriceX96);
@@ -142,12 +143,13 @@ contract GridPositionManager is Ownable {
         return y;
     }
 
-    function updateTargetPrice(uint256 _newTargetPrice) external onlyOwner {
-        targetPrice = _newTargetPrice;
-    }
-
     function updateGridPercentage(uint256 _newGridPercentage) external onlyOwner {
         require(_newGridPercentage > 0, "Grid percentage must be greater than 0");
         gridPercentage = _newGridPercentage;
+    }
+
+    function updatePriceRangePercentage(uint256 _newPriceRangePercentage) external onlyOwner {
+        require(_newPriceRangePercentage > 0, "Price range percentage must be greater than 0");
+        priceRangePercentage = _newPriceRangePercentage;
     }
 }
