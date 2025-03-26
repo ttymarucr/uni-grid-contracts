@@ -12,8 +12,8 @@ import "@uniswap/v3-core/contracts/libraries/TickMath.sol";
 contract GridPositionManager is Ownable {
     struct Position {
         uint256 tokenId;
-        uint256 tickLower;
-        uint256 tickUpper;
+        int24 tickLower;
+        int24 tickUpper;
     }
 
     Position[] public positions;
@@ -174,6 +174,10 @@ contract GridPositionManager is Ownable {
         return 0;
     }
 
+    function getPositionsLength() external view returns (uint256) {
+        return positions.length;
+    }
+
     function getTickFromPrice(uint256 price, uint8) internal pure returns (int24) {
         require(price > 0, "Price must be greater than 0");
 
@@ -201,7 +205,7 @@ contract GridPositionManager is Ownable {
             uint256 tokenId = positions[i].tokenId;
 
             // Collect fees and remove liquidity
-            (, uint128 liquidity,,,,) = positionManager.positions(tokenId);
+            (,,,,,,, uint128 liquidity,,,,) = positionManager.positions(tokenId);
             if (liquidity > 0) {
                 positionManager.decreaseLiquidity(
                     INonfungiblePositionManager.DecreaseLiquidityParams({
