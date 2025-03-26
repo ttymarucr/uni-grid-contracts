@@ -22,7 +22,6 @@ contract GridPositionManager is Ownable {
     IUniswapV3Pool public immutable pool;
     INonfungiblePositionManager public immutable positionManager;
 
-    uint256 public gridPercentage;
     uint256 public priceRangePercentage;
     uint256 public gridStep;
 
@@ -71,7 +70,7 @@ contract GridPositionManager is Ownable {
         } else {
             IERC20(pool.token1()).transferFrom(msg.sender, address(this), token1Amount);
         }
-
+        sweep();
         uint256[] memory gridPrices = calculateGridPrices(targetPrice);
         require(gridPrices.length > 2, "Invalid grid prices");
 
@@ -234,8 +233,8 @@ contract GridPositionManager is Ownable {
     }
 
     function compound() external onlyOwner {
-        uint256 accumulated0Fees = 0;
-        uint256 accumulated1Fees = 0;
+        uint256 accumulated0Fees = IERC20(pool.token0()).balanceOf(address(this));
+        uint256 accumulated1Fees = IERC20(pool.token1()).balanceOf(address(this));
         for (uint256 i = 0; i < positions.length; i++) {
             uint256 tokenId = positions[i].tokenId;
             uint128 liquidity = positions[i].liquidity;
@@ -280,6 +279,55 @@ contract GridPositionManager is Ownable {
                     );
                     break;
                 }
+            }
+        }
+    }
+
+    function sweep() public onlyOwner {
+        // Fetch the current pool price
+        (uint160 sqrtPriceX96,,,,,,) = pool.slot0();
+        uint256 currentPrice = uint256(sqrtPriceX96) * uint256(sqrtPriceX96) / (1 << 192);
+
+        uint256 lowerBound = currentPrice - (currentPrice * priceRangePercentage) / 100;
+        uint256 upperBound = currentPrice + (currentPrice * priceRangePercentage) / 100;
+
+        for (uint256 i = 0; i < positions.length; i++) {
+            uint256 tokenId = positions[i].tokenId;
+            uint128 liquidity = positions[i].liquidity;
+
+            // Skip positions with no liquidity
+            if (liquidity == 0) {
+                continue;
+            }
+
+            // Check if the position is outside the price range
+            uint256 positionLowerPrice = uint256(TickMath.getSqrtRatioAtTick(positions[i].tickLower)) ** 2 / (1 << 192);
+            uint256 positionUpperPrice = uint256(TickMath.getSqrtRatioAtTick(positions[i].tickUpper)) ** 2 / (1 << 192);
+
+            if (positionUpperPrice < lowerBound || positionLowerPrice > upperBound) {
+                // Remove liquidity from the position
+                positionManager.decreaseLiquidity(
+                    INonfungiblePositionManager.DecreaseLiquidityParams({
+                        tokenId: tokenId,
+                        liquidity: liquidity,
+                        amount0Min: 0,
+                        amount1Min: 0,
+                        deadline: block.timestamp + 1 hours
+                    })
+                );
+
+                // Collect fees and tokens
+                positionManager.collect(
+                    INonfungiblePositionManager.CollectParams({
+                        tokenId: tokenId,
+                        recipient: address(this),
+                        amount0Max: type(uint128).max,
+                        amount1Max: type(uint128).max
+                    })
+                );
+
+                // Update the position's liquidity to 0
+                positions[i].liquidity = 0;
             }
         }
     }
