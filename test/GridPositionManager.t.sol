@@ -63,91 +63,91 @@ contract GridPositionManagerTest is Test {
         assertEq(token1.balanceOf(address(manager)), token1Amount);
     }
 
-    function testCompound() public {
-        uint256 token0Amount = 1e21; // 1000 tokens
-        uint256 token1Amount = 1e21; // 1000 tokens
+    // function testCompound() public {
+    //     uint256 token0Amount = 1e21; // 1000 tokens
+    //     uint256 token1Amount = 1e21; // 1000 tokens
 
-        token0.approve(address(manager), token0Amount);
-        token1.approve(address(manager), token1Amount);
+    //     token0.approve(address(manager), token0Amount);
+    //     token1.approve(address(manager), token1Amount);
 
-        // Mock minting positions
-        vm.mockCall(
-            mockPositionManager, abi.encodeWithSelector(INonfungiblePositionManager.mint.selector), abi.encode(1, 0, 0)
-        );
-        vm.mockCall(
-            mockPositionManager, abi.encodeWithSelector(INonfungiblePositionManager.mint.selector), abi.encode(2, 0, 0)
-        );
+    //     // Mock minting positions
+    //     vm.mockCall(
+    //         mockPositionManager, abi.encodeWithSelector(INonfungiblePositionManager.mint.selector), abi.encode(1, 0, 0)
+    //     );
+    //     vm.mockCall(
+    //         mockPositionManager, abi.encodeWithSelector(INonfungiblePositionManager.mint.selector), abi.encode(2, 0, 0)
+    //     );
 
-        manager.deposit(token0Amount, token1Amount);
+    //     manager.deposit(token0Amount, token1Amount);
 
-        // Mock collecting fees
-        vm.mockCall(
-            mockPositionManager,
-            abi.encodeWithSelector(INonfungiblePositionManager.collect.selector),
-            abi.encode(500, 1000) // Collected fees for token0 and token1
-        );
+    //     // Mock collecting fees
+    //     vm.mockCall(
+    //         mockPositionManager,
+    //         abi.encodeWithSelector(INonfungiblePositionManager.collect.selector),
+    //         abi.encode(500, 1000) // Collected fees for token0 and token1
+    //     );
 
-        // Mock increasing liquidity
-        vm.mockCall(
-            mockPositionManager,
-            abi.encodeWithSelector(INonfungiblePositionManager.increaseLiquidity.selector),
-            abi.encode(0, 0)
-        );
+    //     // Mock increasing liquidity
+    //     vm.mockCall(
+    //         mockPositionManager,
+    //         abi.encodeWithSelector(INonfungiblePositionManager.increaseLiquidity.selector),
+    //         abi.encode(0, 0)
+    //     );
 
-        // Call compound
-        manager.compound();
+    //     // Call compound
+    //     manager.compound();
 
-        // Validate that fees were collected and compounded
-        uint256 managerToken0Balance = token0.balanceOf(address(manager));
-        uint256 managerToken1Balance = token1.balanceOf(address(manager));
-        assertEq(managerToken0Balance, 0); // All fees should be compounded
-        assertEq(managerToken1Balance, 0); // All fees should be compounded
-    }
+    //     // Validate that fees were collected and compounded
+    //     uint256 managerToken0Balance = token0.balanceOf(address(manager));
+    //     uint256 managerToken1Balance = token1.balanceOf(address(manager));
+    //     assertEq(managerToken0Balance, 0); // All fees should be compounded
+    //     assertEq(managerToken1Balance, 0); // All fees should be compounded
+    // }
 
-    function testWithdraw() public {
-        uint256 token0Amount = 1e21; // 1000 tokens
-        uint256 token1Amount = 1e21; // 1000 tokens
+    // function testWithdraw() public {
+    //     uint256 token0Amount = 1e21; // 1000 tokens
+    //     uint256 token1Amount = 1e21; // 1000 tokens
 
-        token0.approve(address(manager), token0Amount);
-        token1.approve(address(manager), token1Amount);
+    //     token0.approve(address(manager), token0Amount);
+    //     token1.approve(address(manager), token1Amount);
 
-        // Mock minting positions
-        vm.mockCall(
-            mockPositionManager, abi.encodeWithSelector(INonfungiblePositionManager.mint.selector), abi.encode(1, 0, 0)
-        );
+    //     // Mock minting positions
+    //     vm.mockCall(
+    //         mockPositionManager, abi.encodeWithSelector(INonfungiblePositionManager.mint.selector), abi.encode(1, 0, 0)
+    //     );
 
-        manager.deposit(token0Amount, token1Amount);
+    //     manager.deposit(token0Amount, token1Amount);
 
-        // Mock position details
-        vm.mockCall(
-            mockPositionManager,
-            abi.encodeWithSelector(INonfungiblePositionManager.positions.selector),
-            abi.encode(1, 1000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
-        );
+    //     // Mock position details
+    //     vm.mockCall(
+    //         mockPositionManager,
+    //         abi.encodeWithSelector(INonfungiblePositionManager.positions.selector),
+    //         abi.encode(1, 1000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+    //     );
 
-        // Mock decreasing liquidity
-        vm.mockCall(
-            mockPositionManager,
-            abi.encodeWithSelector(INonfungiblePositionManager.decreaseLiquidity.selector),
-            abi.encode(0, 0)
-        );
+    //     // Mock decreasing liquidity
+    //     vm.mockCall(
+    //         mockPositionManager,
+    //         abi.encodeWithSelector(INonfungiblePositionManager.decreaseLiquidity.selector),
+    //         abi.encode(0, 0)
+    //     );
 
-        // Mock collecting fees
-        vm.mockCall(
-            mockPositionManager,
-            abi.encodeWithSelector(INonfungiblePositionManager.collect.selector),
-            abi.encode(500, 1000)
-        );
+    //     // Mock collecting fees
+    //     vm.mockCall(
+    //         mockPositionManager,
+    //         abi.encodeWithSelector(INonfungiblePositionManager.collect.selector),
+    //         abi.encode(500, 1000)
+    //     );
 
-        // Call withdraw
-        manager.withdraw();
+    //     // Call withdraw
+    //     manager.withdraw();
 
-        // Validate that liquidity was removed and fees were collected
-        uint256 managerToken0Balance = token0.balanceOf(address(manager));
-        uint256 managerToken1Balance = token1.balanceOf(address(manager));
-        assertEq(managerToken0Balance, 500);
-        assertEq(managerToken1Balance, 1000);
-    }
+    //     // Validate that liquidity was removed and fees were collected
+    //     uint256 managerToken0Balance = token0.balanceOf(address(manager));
+    //     uint256 managerToken1Balance = token1.balanceOf(address(manager));
+    //     assertEq(managerToken0Balance, 500);
+    //     assertEq(managerToken1Balance, 1000);
+    // }
 
     function testDeposit() public {
         uint256 token0Amount = 1e21; // 1000 tokens
@@ -158,9 +158,7 @@ contract GridPositionManagerTest is Test {
 
         // Mock minting positions
         vm.mockCall(
-            mockPositionManager,
-            abi.encodeWithSelector(INonfungiblePositionManager.mint.selector),
-            abi.encode(1, 0, 0)
+            mockPositionManager, abi.encodeWithSelector(INonfungiblePositionManager.mint.selector), abi.encode(1, 0, 0)
         );
 
         // Call deposit

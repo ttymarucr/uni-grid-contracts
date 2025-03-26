@@ -14,6 +14,7 @@ contract GridPositionManager is Ownable {
         uint256 tokenId;
         int24 tickLower;
         int24 tickUpper;
+        uint128 liquidity;
     }
 
     Position[] public positions;
@@ -94,10 +95,10 @@ contract GridPositionManager is Ownable {
             int24 tickUpper = getTickFromPrice(upperPrice, 18);
 
             // Check if the position already exists
-            uint256 existingTokenId = getPositionFromTicks(tickLower, tickUpper);
+            (uint256 existingTokenId, uint256 index) = getPositionFromTicks(tickLower, tickUpper);
             if (existingTokenId > 0) {
                 // Add liquidity to the existing position
-                positionManager.increaseLiquidity(
+                (uint128 newLiquidity,,) = positionManager.increaseLiquidity(
                     INonfungiblePositionManager.IncreaseLiquidityParams({
                         tokenId: existingTokenId,
                         amount0Desired: amount0Desired,
@@ -107,11 +108,12 @@ contract GridPositionManager is Ownable {
                         deadline: block.timestamp + 1 hours
                     })
                 );
+                positions[index].liquidity = newLiquidity;
                 continue;
             }
 
             // Mint position and store the token ID
-            (uint256 tokenId,,,) = positionManager.mint(
+            (uint256 tokenId, uint128 liquidity,,) = positionManager.mint(
                 INonfungiblePositionManager.MintParams({
                     token0: pool.token0(),
                     token1: pool.token1(),
@@ -128,7 +130,9 @@ contract GridPositionManager is Ownable {
             );
 
             // Store the position in the array
-            positions.push(Position({tokenId: tokenId, tickLower: tickLower, tickUpper: tickUpper}));
+            positions.push(
+                Position({tokenId: tokenId, tickLower: tickLower, tickUpper: tickUpper, liquidity: liquidity})
+            );
         }
     }
 
@@ -165,13 +169,13 @@ contract GridPositionManager is Ownable {
         token1Amount = swapRouter.exactInputSingle(params);
     }
 
-    function getPositionFromTicks(int24 tickLower, int24 tickUpper) internal view returns (uint256) {
+    function getPositionFromTicks(int24 tickLower, int24 tickUpper) internal view returns (uint256, uint256) {
         for (uint256 i = 0; i < positions.length; i++) {
             if (positions[i].tickLower == tickLower && positions[i].tickUpper == tickUpper) {
-                return positions[i].tokenId;
+                return (positions[i].tokenId, i);
             }
         }
-        return 0;
+        return (0, 0);
     }
 
     function getPositionsLength() external view returns (uint256) {
@@ -203,9 +207,9 @@ contract GridPositionManager is Ownable {
     function withdraw() external onlyOwner {
         for (uint256 i = 0; i < positions.length; i++) {
             uint256 tokenId = positions[i].tokenId;
+            uint128 liquidity = positions[i].liquidity;
 
             // Collect fees and remove liquidity
-            (,,,,,,, uint128 liquidity,,,,) = positionManager.positions(tokenId);
             if (liquidity > 0) {
                 positionManager.decreaseLiquidity(
                     INonfungiblePositionManager.DecreaseLiquidityParams({
@@ -234,7 +238,10 @@ contract GridPositionManager is Ownable {
         uint256 accumulated1Fees = 0;
         for (uint256 i = 0; i < positions.length; i++) {
             uint256 tokenId = positions[i].tokenId;
-
+            uint128 liquidity = positions[i].liquidity;
+            if (liquidity == 0) {
+                continue;
+            }
             // Collect fees
             (uint256 amount0Collected, uint256 amount1Collected) = positionManager.collect(
                 INonfungiblePositionManager.CollectParams({
