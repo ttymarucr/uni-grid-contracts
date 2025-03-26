@@ -224,4 +224,52 @@ contract GridPositionManager is Ownable {
             }
         }
     }
+
+    function compound() external onlyOwner {
+        uint256 accumulated0Fees = 0;
+        uint256 accumulated1Fees = 0;
+        for (uint256 i = 0; i < positions.length; i++) {
+            uint256 tokenId = positions[i].tokenId;
+
+            // Collect fees
+            (uint256 amount0Collected, uint256 amount1Collected) = positionManager.collect(
+                INonfungiblePositionManager.CollectParams({
+                    tokenId: tokenId,
+                    recipient: address(this),
+                    amount0Max: type(uint128).max,
+                    amount1Max: type(uint128).max
+                })
+            );
+            accumulated0Fees += amount0Collected;
+            accumulated1Fees += amount1Collected;
+        }
+        // Fetch the current pool price
+        (uint160 sqrtPriceX96,,,,,,) = pool.slot0();
+        uint256 currentPrice = uint256(sqrtPriceX96) * uint256(sqrtPriceX96) / (1 << 192);
+
+        if (accumulated0Fees > 0 || accumulated1Fees > 0) {
+            // Determine the current pool position based on the price
+            for (uint256 i = 0; i < positions.length; i++) {
+                if (
+                    currentPrice >= uint256(TickMath.getSqrtRatioAtTick(positions[i].tickLower))
+                        && currentPrice <= uint256(TickMath.getSqrtRatioAtTick(positions[i].tickUpper))
+                ) {
+                    uint256 tokenId = positions[i].tokenId;
+
+                    // Add collected fees back into this position as liquidity
+                    positionManager.increaseLiquidity(
+                        INonfungiblePositionManager.IncreaseLiquidityParams({
+                            tokenId: tokenId,
+                            amount0Desired: accumulated0Fees,
+                            amount1Desired: accumulated1Fees,
+                            amount0Min: 0,
+                            amount1Min: 0,
+                            deadline: block.timestamp + 1 hours
+                        })
+                    );
+                    break;
+                }
+            }
+        }
+    }
 }
