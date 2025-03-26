@@ -3,7 +3,7 @@ pragma solidity ^0.8.0;
 
 import "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
 import "@uniswap/v3-periphery/contracts/interfaces/INonfungiblePositionManager.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin_5.2.0/contracts/access/Ownable.sol";
 
 contract GridPositionManager is Ownable {
     IUniswapV3Pool public immutable pool;
