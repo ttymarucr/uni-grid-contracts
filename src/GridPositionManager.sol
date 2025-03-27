@@ -11,64 +11,32 @@ import "@uniswap/v3-core/contracts/libraries/TickMath.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol";
+import "./IGridPositionManager.sol";
 
 /**
  * @title GridPositionManager
  * @dev Manages grid-based liquidity positions on Uniswap V3.
  *      Allows depositing, withdrawing, compounding, and sweeping liquidity positions.
  */
-contract GridPositionManager is Ownable, ReentrancyGuard {
+contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
     using SafeMath for uint256;
 
-    struct Position {
-        uint256 tokenId; // Token ID of the position
-        int24 tickLower; // Lower tick of the position
-        int24 tickUpper; // Upper tick of the position
-        uint128 liquidity; // Liquidity of the position
-        uint256 index; // Index of the position in the positions array
-    }
+    IUniswapV3Pool immutable pool; // Uniswap V3 pool
+    INonfungiblePositionManager immutable positionManager; // Position manager for Uniswap V3
 
-    IUniswapV3Pool public immutable pool; // Uniswap V3 pool
-    INonfungiblePositionManager public immutable positionManager; // Position manager for Uniswap V3
-
-    Position[] public positions; // Array of all positions
-    uint256 public gridQuantity; // Total grid quantity
-    uint256 public gridStep; // Step size for grid prices
+    Position[] positions; // Array of all positions
+    uint256 gridQuantity; // Total grid quantity
+    uint256 gridStep; // Step size for grid prices
 
     uint256[] public activePositionIndexes; // List of indexes for active positions with liquidity
 
-    // Events
     /**
-     * @dev Emitted when liquidity is deposited.
-     * @param owner Address of the depositor.
-     * @param token0Amount Amount of token0 deposited.
-     * @param token1Amount Amount of token1 deposited.
+     * @dev Modifier to restrict access to the contract owner or the contract itself.
      */
-    event Deposit(address indexed owner, uint256 token0Amount, uint256 token1Amount);
-
-    /**
-     * @dev Emitted when liquidity is withdrawn.
-     * @param owner Address of the withdrawer.
-     * @param token0Amount Amount of token0 deposited.
-     * @param token1Amount Amount of token1 deposited.
-     */
-    event Withdraw(address indexed owner, uint256 token0Amount, uint256 token1Amount);
-
-    /**
-     * @dev Emitted when fees are compounded into liquidity.
-     * @param owner Address of the caller.
-     * @param accumulated0Fees Total token0 fees compounded.
-     * @param accumulated1Fees Total token1 fees compounded.
-     */
-    event Compound(address indexed owner, uint256 accumulated0Fees, uint256 accumulated1Fees);
-
-    /**
-     * @dev Emitted when the owner performs an emergency withdrawal.
-     * @param owner Address of the owner performing the withdrawal.
-     * @param token0Amount Amount of token0 withdrawn.
-     * @param token1Amount Amount of token1 withdrawn.
-     */
-    event EmergencyWithdraw(address indexed owner, uint256 token0Amount, uint256 token1Amount);
+    modifier selfOrOwner() {
+        require(msg.sender == owner() || msg.sender == address(this), "E13"); // E13: Caller must be owner or contract
+        _;
+    }
 
     /**
      * @dev Constructor to initialize the contract.
@@ -87,6 +55,10 @@ contract GridPositionManager is Ownable, ReentrancyGuard {
         positionManager = INonfungiblePositionManager(_positionManager);
         gridQuantity = _gridQuantity;
         gridStep = _gridStep;
+
+        // Approve max token amounts for token0 and token1
+        TransferHelper.safeApprove(IUniswapV3Pool(_pool).token0(), _positionManager, type(uint256).max);
+        TransferHelper.safeApprove(IUniswapV3Pool(_pool).token1(), _positionManager, type(uint256).max);
     }
 
     /**
@@ -94,7 +66,7 @@ contract GridPositionManager is Ownable, ReentrancyGuard {
      * @param token0Amount Amount of token0 to deposit.
      * @param token1Amount Amount of token1 to deposit.
      */
-    function deposit(uint256 token0Amount, uint256 token1Amount) public nonReentrant {
+    function deposit(uint256 token0Amount, uint256 token1Amount) public override nonReentrant selfOrOwner {
         require(token0Amount > 0 && token1Amount > 0, "E5"); // E5: Token0 and Token1 amount must be greater than 0
 
         // Fetch the current pool price
@@ -188,7 +160,7 @@ contract GridPositionManager is Ownable, ReentrancyGuard {
      * @dev Withdraws all liquidity from active positions.
      *      Only callable by the contract owner.
      */
-    function withdraw() external onlyOwner nonReentrant {
+    function withdraw() external override onlyOwner nonReentrant {
         for (uint256 i = 0; i < activePositionIndexes.length; i++) {
             uint256 index = activePositionIndexes[i];
             uint256 tokenId = positions[index].tokenId;
@@ -234,7 +206,7 @@ contract GridPositionManager is Ownable, ReentrancyGuard {
      * @dev Compounds collected fees into liquidity for active positions.
      * @param slippage Maximum allowable slippage for adding liquidity (in basis points, e.g., 100 = 1%).
      */
-    function compound(uint256 slippage) external nonReentrant {
+    function compound(uint256 slippage) external override nonReentrant {
         require(slippage <= 10000, "E11"); // E11: Slippage must be less than or equal to 10000 (100%)
 
         uint256 accumulated0Fees = IERC20Metadata(pool.token0()).balanceOf(address(this));
@@ -269,7 +241,7 @@ contract GridPositionManager is Ownable, ReentrancyGuard {
                     currentPrice >= uint256(TickMath.getSqrtRatioAtTick(positions[index].tickLower))
                         && currentPrice <= uint256(TickMath.getSqrtRatioAtTick(positions[index].tickUpper))
                 ) {
-                    // Calculate slippage-adjusted amounts                    
+                    // Calculate slippage-adjusted amounts
                     uint256 amount0Slippage = accumulated0Fees.mul(uint256(10000).sub(slippage)).div(10000);
                     uint256 amount1Slippage = accumulated1Fees.mul(uint256(10000).sub(slippage)).div(10000);
 
@@ -295,7 +267,7 @@ contract GridPositionManager is Ownable, ReentrancyGuard {
     /**
      * @dev Sweeps positions outside the price range and redeposits the collected tokens.
      */
-    function sweep() external {
+    function sweep() external override {
         // Fetch the current pool price
         (uint160 sqrtPriceX96,,,,,,) = pool.slot0();
         uint256 currentPrice = uint256(sqrtPriceX96) * uint256(sqrtPriceX96) / (1 << 192);
@@ -356,7 +328,7 @@ contract GridPositionManager is Ownable, ReentrancyGuard {
      *      Only callable by the contract owner.
      * @param _newGridStep New grid step size.
      */
-    function updateGridStep(uint256 _newGridStep) external onlyOwner {
+    function updateGridStep(uint256 _newGridStep) external override onlyOwner {
         require(_newGridStep > 0 && _newGridStep < 10000, "E6"); // E6: Grid step must be greater than 0 and less than 10000
         gridStep = _newGridStep;
     }
@@ -366,7 +338,7 @@ contract GridPositionManager is Ownable, ReentrancyGuard {
      *      Only callable by the contract owner.
      * @param _newgridQuantity New grid quantity.
      */
-    function updategridQuantity(uint256 _newgridQuantity) external onlyOwner {
+    function updategridQuantity(uint256 _newgridQuantity) external override onlyOwner {
         require(
             _newgridQuantity > 0 && _newgridQuantity < 10000,
             "E7" // E7: Price range percentage must be greater than 0 and less than 10000
@@ -378,7 +350,7 @@ contract GridPositionManager is Ownable, ReentrancyGuard {
      * @dev Returns the total number of positions.
      * @return The length of the positions array.
      */
-    function getPositionsLength() external view returns (uint256) {
+    function getPositionsLength() external view override returns (uint256) {
         return positions.length;
     }
 
@@ -386,7 +358,7 @@ contract GridPositionManager is Ownable, ReentrancyGuard {
      * @dev Returns the indexes of active positions.
      * @return An array of active position indexes.
      */
-    function getActivePositionIndexes() external view returns (uint256[] memory) {
+    function getActivePositionIndexes() external view override returns (uint256[] memory) {
         return activePositionIndexes;
     }
 
@@ -521,5 +493,26 @@ contract GridPositionManager is Ownable, ReentrancyGuard {
      */
     fallback() external payable {
         revert("Function not supported");
+    }
+
+    function getPool() external view override returns (address) {
+        return address(pool);
+    }
+
+    function getPositionManager() external view override returns (address) {
+        return address(positionManager);
+    }
+
+    function getGridQuantity() external view override returns (uint256) {
+        return gridQuantity;
+    }
+
+    function getGridStep() external view override returns (uint256) {
+        return gridStep;
+    }
+
+    function getPosition(uint256 index) external view override returns (Position memory) {
+        require(index < positions.length, "E12"); // E12: Index out of bounds
+        return positions[index];
     }
 }
