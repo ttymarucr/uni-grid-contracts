@@ -47,28 +47,32 @@ contract GridPositionManager is Ownable {
 
     function deposit(uint256 token0Amount, uint256 token1Amount) public {
         require(token0Amount > 0 && token1Amount > 0, "Token0 and Token1 amount must be greater than 0");
+
         // Fetch the current pool price
         (uint160 sqrtPriceX96,,,,,,) = pool.slot0();
         uint256 targetPrice = uint256(sqrtPriceX96) * uint256(sqrtPriceX96) / (1 << 192);
+
         IERC20Metadata(pool.token0()).transferFrom(msg.sender, address(this), token0Amount);
         IERC20Metadata(pool.token1()).transferFrom(msg.sender, address(this), token1Amount);
+
         uint256[] memory gridPrices = calculateGridPrices(targetPrice);
         require(gridPrices.length > 2, "Invalid grid prices");
 
-        for (uint256 i = 0; i < gridPrices.length - 1; i++) {
+        uint256 gridLength = gridPrices.length - 1;
+        uint256 halfGridLength = gridLength / 2;
+
+        for (uint256 i = 0; i < gridLength; i++) {
             uint256 lowerPrice = gridPrices[i];
             uint256 upperPrice = gridPrices[i + 1];
             uint256 amount0Desired = 0;
             uint256 amount1Desired = 0;
+
             if (upperPrice < targetPrice) {
-                // lower grids
-                amount0Desired = token0Amount / ((gridPrices.length - 1) / 2);
+                amount0Desired = token0Amount / halfGridLength;
             } else if (lowerPrice > targetPrice) {
-                // upper grids
-                amount1Desired = token1Amount / ((gridPrices.length - 1) / 2);
-            } else if (lowerPrice < targetPrice && upperPrice > targetPrice) {
-                // middle grid
-                continue;
+                amount1Desired = token1Amount / halfGridLength;
+            } else {
+                continue; // Skip middle grid
             }
 
             int24 tickLower = getTickFromPrice(lowerPrice);
@@ -340,17 +344,16 @@ contract GridPositionManager is Ownable {
     }
 
     function removeActivePosition(uint256 index) internal {
-        for (uint256 i = 0; i < activePositionIndexes.length; i++) {
-            if (activePositionIndexes[i] == index) {
-                activePositionIndexes[i] = activePositionIndexes[activePositionIndexes.length - 1];
-                activePositionIndexes.pop();
-                break;
-            }
+        uint256 lastIndex = activePositionIndexes.length - 1;
+        if (index != lastIndex) {
+            activePositionIndexes[index] = activePositionIndexes[lastIndex];
         }
+        activePositionIndexes.pop();
     }
 
     function isActivePosition(uint256 index) internal view returns (bool) {
-        for (uint256 i = 0; i < activePositionIndexes.length; i++) {
+        uint256 length = activePositionIndexes.length;
+        for (uint256 i = 0; i < length; i++) {
             if (activePositionIndexes[i] == index) {
                 return true;
             }
