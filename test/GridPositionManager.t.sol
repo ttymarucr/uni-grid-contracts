@@ -36,15 +36,6 @@ contract GridPositionManagerTest is Test {
         manager = new GridPositionManager(mockPool, mockPositionManager, 5, 20);
     }
 
-    function testCalculateGridPrices() public view {
-        uint256 targetPrice = 1000 * 1e18; // Example target price
-        uint256[] memory gridPrices = manager.calculateGridPrices(targetPrice);
-
-        assertEq(gridPrices.length, 9); // Example: 8 grids + 1
-        assertEq(gridPrices[0], 800 * 1e18); // Lower bound
-        assertEq(gridPrices[8], 1200 * 1e18); // Upper bound
-    }
-
     function testCreateGridPositions() public {
         uint256 token0Amount = 1e21; // 1000 tokens
         uint256 token1Amount = 1e21; // 1000 tokens

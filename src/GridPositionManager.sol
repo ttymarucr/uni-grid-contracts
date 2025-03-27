@@ -129,9 +129,10 @@ contract GridPositionManager is Ownable {
     }
 
     function withdraw() external onlyOwner {
-        for (uint256 i = 0; i < positions.length; i++) {
-            uint256 tokenId = positions[i].tokenId;
-            uint128 liquidity = positions[i].liquidity;
+        for (uint256 i = 0; i < activePositionIndexes.length; i++) {
+            uint256 index = activePositionIndexes[i];
+            uint256 tokenId = positions[index].tokenId;
+            uint128 liquidity = positions[index].liquidity;
 
             // Collect fees and remove liquidity
             if (liquidity > 0) {
@@ -155,7 +156,7 @@ contract GridPositionManager is Ownable {
                 );
 
                 // Remove the position from the active positions list
-                removeActivePosition(positions[i].index);
+                removeActivePosition(index);
 
                 emit Withdraw(msg.sender, tokenId, liquidity);
             }
@@ -165,12 +166,9 @@ contract GridPositionManager is Ownable {
     function compound(uint256 slippage) external {
         uint256 accumulated0Fees = IERC20Metadata(pool.token0()).balanceOf(address(this));
         uint256 accumulated1Fees = IERC20Metadata(pool.token1()).balanceOf(address(this));
-        for (uint256 i = 0; i < positions.length; i++) {
-            uint256 tokenId = positions[i].tokenId;
-            uint128 liquidity = positions[i].liquidity;
-            if (liquidity == 0) {
-                continue;
-            }
+        for (uint256 i = 0; i < activePositionIndexes.length; i++) {
+            uint256 index = activePositionIndexes[i];
+            uint256 tokenId = positions[index].tokenId;
             // Collect fees
             (uint256 amount0Collected, uint256 amount1Collected) = positionManager.collect(
                 INonfungiblePositionManager.CollectParams({
@@ -189,12 +187,13 @@ contract GridPositionManager is Ownable {
 
         if (accumulated0Fees > 0 || accumulated1Fees > 0) {
             // Determine the current pool position based on the price
-            for (uint256 i = 0; i < positions.length; i++) {
+            for (uint256 i = 0; i < activePositionIndexes.length; i++) {
+                uint256 index = activePositionIndexes[i];
                 if (
-                    currentPrice >= uint256(TickMath.getSqrtRatioAtTick(positions[i].tickLower))
-                        && currentPrice <= uint256(TickMath.getSqrtRatioAtTick(positions[i].tickUpper))
+                    currentPrice >= uint256(TickMath.getSqrtRatioAtTick(positions[index].tickLower))
+                        && currentPrice <= uint256(TickMath.getSqrtRatioAtTick(positions[index].tickUpper))
                 ) {
-                    uint256 tokenId = positions[i].tokenId;
+                    uint256 tokenId = positions[index].tokenId;
                     uint256 amount0Slippage = accumulated0Fees
                         - (accumulated0Fees * (slippage ** IERC20Metadata(pool.token0()).decimals() - 3));
                     uint256 amount1Slippage = accumulated1Fees
@@ -210,7 +209,7 @@ contract GridPositionManager is Ownable {
                             deadline: block.timestamp + 1 hours
                         })
                     );
-                    positions[i].liquidity = newLiquidity;
+                    positions[index].liquidity = newLiquidity;
                     emit Compound(msg.sender, accumulated0Fees, accumulated1Fees);
                     break;
                 }
@@ -227,18 +226,16 @@ contract GridPositionManager is Ownable {
         uint256 lowerBound = currentPrice - priceDiff;
         uint256 upperBound = currentPrice + priceDiff;
 
-        for (uint256 i = 0; i < positions.length; i++) {
-            uint256 tokenId = positions[i].tokenId;
-            uint128 liquidity = positions[i].liquidity;
-
-            // Skip positions with no liquidity
-            if (liquidity == 0) {
-                continue;
-            }
+        for (uint256 i = 0; i < activePositionIndexes.length; i++) {
+            uint256 index = activePositionIndexes[i];
+            uint256 tokenId = positions[index].tokenId;
+            uint128 liquidity = positions[index].liquidity;
 
             // Check if the position is outside the price range
-            uint256 positionLowerPrice = uint256(TickMath.getSqrtRatioAtTick(positions[i].tickLower)) ** 2 / (1 << 192);
-            uint256 positionUpperPrice = uint256(TickMath.getSqrtRatioAtTick(positions[i].tickUpper)) ** 2 / (1 << 192);
+            uint256 positionLowerPrice =
+                uint256(TickMath.getSqrtRatioAtTick(positions[index].tickLower)) ** 2 / (1 << 192);
+            uint256 positionUpperPrice =
+                uint256(TickMath.getSqrtRatioAtTick(positions[index].tickUpper)) ** 2 / (1 << 192);
 
             if (positionUpperPrice < lowerBound || positionLowerPrice > upperBound) {
                 // Remove liquidity from the position
@@ -263,10 +260,10 @@ contract GridPositionManager is Ownable {
                 );
 
                 // Remove the position from the active positions list
-                removeActivePosition(positions[i]);
+                removeActivePosition(index);
 
                 // Update the position's liquidity to 0
-                positions[i].liquidity = 0;
+                positions[index].liquidity = 0;
             }
         }
         uint256 accumulated0Fees = IERC20Metadata(pool.token0()).balanceOf(address(this));
