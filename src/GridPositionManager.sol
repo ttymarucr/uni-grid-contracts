@@ -39,10 +39,10 @@ contract GridPositionManager is Ownable, ReentrancyGuard {
     event Compound(address indexed owner, uint256 accumulated0Fees, uint256 accumulated1Fees);
 
     constructor(address _pool, address _positionManager, uint256 _gridQuantity, uint256 _gridStep) {
-        require(_pool != address(0), "Invalid pool address");
-        require(_positionManager != address(0), "Invalid position manager address");
-        require(_gridQuantity > 0, "Grid range percentage must be greater than 0");
-        require(_gridStep > 0, "Grid step must be greater than 0");
+        require(_pool != address(0), "E1"); // E1: Invalid pool address
+        require(_positionManager != address(0), "E2"); // E2: Invalid position manager address
+        require(_gridQuantity > 0, "E3"); // E3: Grid range percentage must be greater than 0
+        require(_gridStep > 0, "E4"); // E4: Grid step must be greater than 0
 
         pool = IUniswapV3Pool(_pool);
         positionManager = INonfungiblePositionManager(_positionManager);
@@ -51,7 +51,7 @@ contract GridPositionManager is Ownable, ReentrancyGuard {
     }
 
     function deposit(uint256 token0Amount, uint256 token1Amount) public nonReentrant {
-        require(token0Amount > 0 && token1Amount > 0, "Token0 and Token1 amount must be greater than 0");
+        require(token0Amount > 0 && token1Amount > 0, "E5"); // E5: Token0 and Token1 amount must be greater than 0
 
         // Fetch the current pool price
         (uint160 sqrtPriceX96,,,,,,) = pool.slot0();
@@ -287,14 +287,14 @@ contract GridPositionManager is Ownable, ReentrancyGuard {
     }
 
     function updateGridStep(uint256 _newGridStep) external onlyOwner {
-        require(_newGridStep > 0 && _newGridStep < 10000, "Grid step must be greater than 0 and less than 10000");
+        require(_newGridStep > 0 && _newGridStep < 10000, "E6"); // E6: Grid step must be greater than 0 and less than 10000
         gridStep = _newGridStep;
     }
 
     function updategridQuantity(uint256 _newgridQuantity) external onlyOwner {
         require(
             _newgridQuantity > 0 && _newgridQuantity < 10000,
-            "Price range percentage must be greater than 0 and less than 10000"
+            "E7" // E7: Price range percentage must be greater than 0 and less than 10000
         );
         gridQuantity = _newgridQuantity;
     }
@@ -308,13 +308,13 @@ contract GridPositionManager is Ownable, ReentrancyGuard {
     }
 
     function calculateGridPrices(uint256 targetPrice) internal view returns (uint256[] memory) {
-        require(gridQuantity > 0, "Price range percentage must be greater than 0");
+        require(gridQuantity > 0, "E8"); // E8: Price range percentage must be greater than 0
         uint256 priceDiff = (gridQuantity / 2) * gridStep;
         uint256 lowerPrice = targetPrice - priceDiff;
         uint256 upperPrice = targetPrice + priceDiff;
 
         uint256 gridCount = (upperPrice - lowerPrice).div(gridStep);
-        require(gridCount > 0, "Grid count must be greater than 0");
+        require(gridCount > 0, "E9"); // E9: Grid count must be greater than 0
 
         uint256[] memory gridPrices = new uint256[](gridCount + 1);
         uint256 currentPrice = lowerPrice;
@@ -336,7 +336,7 @@ contract GridPositionManager is Ownable, ReentrancyGuard {
     }
 
     function getTickFromPrice(uint256 price) internal pure returns (int24) {
-        require(price > 0, "Price must be greater than 0");
+        require(price > 0, "E10"); // E10: Price must be greater than 0
 
         // Convert price to sqrtPriceX96 format
         uint160 sqrtPriceX96 = uint160(sqrt(price) * (1 << 96) / 1e18);
