@@ -122,9 +122,6 @@ contract GridPositionManager is Ownable, ReentrancyGuard {
                 })
             );
 
-            // Add the new position to the active positions list
-            activePositionIndexes.push(positions.length);
-
             // Store the position in the array
             positions.push(
                 Position({
@@ -135,6 +132,9 @@ contract GridPositionManager is Ownable, ReentrancyGuard {
                     index: positions.length
                 })
             );
+
+            // Add the new position to the active positions list
+            activePositionIndexes.push(positions.length - 1); // Use positions.length - 1 directly
         }
 
         emit Deposit(msg.sender, token0Amount, token1Amount);
@@ -287,12 +287,15 @@ contract GridPositionManager is Ownable, ReentrancyGuard {
     }
 
     function updateGridStep(uint256 _newGridStep) external onlyOwner {
-        require(_newGridStep > 0, "Grid step must be greater than 0");
+        require(_newGridStep > 0 && _newGridStep < 10000, "Grid step must be greater than 0 and less than 10000");
         gridStep = _newGridStep;
     }
 
     function updategridQuantity(uint256 _newgridQuantity) external onlyOwner {
-        require(_newgridQuantity > 0, "Price range percentage must be greater than 0");
+        require(
+            _newgridQuantity > 0 && _newgridQuantity < 10000,
+            "Price range percentage must be greater than 0 and less than 10000"
+        );
         gridQuantity = _newgridQuantity;
     }
 
@@ -310,12 +313,14 @@ contract GridPositionManager is Ownable, ReentrancyGuard {
         uint256 lowerPrice = targetPrice - priceDiff;
         uint256 upperPrice = targetPrice + priceDiff;
 
-        uint256 gridCount = (upperPrice - lowerPrice) / gridStep;
+        uint256 gridCount = (upperPrice - lowerPrice).div(gridStep);
         require(gridCount > 0, "Grid count must be greater than 0");
 
         uint256[] memory gridPrices = new uint256[](gridCount + 1);
+        uint256 currentPrice = lowerPrice;
         for (uint256 i = 0; i <= gridCount; i++) {
-            gridPrices[i] = lowerPrice + (i * gridStep);
+            gridPrices[i] = currentPrice;
+            currentPrice += gridStep; // Avoid recalculating lowerPrice + (i * gridStep)
         }
 
         return gridPrices;
