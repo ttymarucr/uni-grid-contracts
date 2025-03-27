@@ -95,7 +95,7 @@ contract GridPositionManagerTest is Test {
         );
 
         // Call compound
-        manager.compound();
+        manager.compound(500);
 
         // Validate that fees were collected and compounded
         uint256 managerToken0Balance = token0.balanceOf(address(manager));
@@ -137,9 +137,7 @@ contract GridPositionManagerTest is Test {
 
         // Mock minting positions
         vm.mockCall(
-            mockPositionManager,
-            abi.encodeWithSelector(INonfungiblePositionManager.mint.selector),
-            abi.encode(1, 0, 0)
+            mockPositionManager, abi.encodeWithSelector(INonfungiblePositionManager.mint.selector), abi.encode(1, 0, 0)
         );
 
         manager.deposit(token0Amount, token1Amount);
