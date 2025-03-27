@@ -255,25 +255,25 @@ contract GridPositionManager is Ownable, ReentrancyGuard {
             accumulated1Fees = accumulated1Fees.add(amount1Collected);
         }
 
-        // Fetch the current pool price
-        (uint160 sqrtPriceX96,,,,,,) = pool.slot0();
-        uint256 currentPrice = uint256(sqrtPriceX96) * uint256(sqrtPriceX96) / (1 << 192);
-
+        // Perform state changes after all external calls
         if (accumulated0Fees > 0 || accumulated1Fees > 0) {
-            // Determine the current pool position based on the price
             for (uint256 i = 0; i < activePositionIndexes.length; i++) {
                 uint256 index = activePositionIndexes[i];
+                uint256 tokenId = positions[index].tokenId;
+
+                // Determine the current pool position based on the price
+                (uint160 sqrtPriceX96,,,,,,) = pool.slot0();
+                uint256 currentPrice = uint256(sqrtPriceX96) * uint256(sqrtPriceX96) / (1 << 192);
+
                 if (
                     currentPrice >= uint256(TickMath.getSqrtRatioAtTick(positions[index].tickLower))
                         && currentPrice <= uint256(TickMath.getSqrtRatioAtTick(positions[index].tickUpper))
                 ) {
-                    uint256 tokenId = positions[index].tokenId;
-
-                    // Calculate slippage-adjusted minimum amounts
+                    // Calculate slippage-adjusted amounts                    
                     uint256 amount0Slippage = accumulated0Fees.mul(uint256(10000).sub(slippage)).div(10000);
                     uint256 amount1Slippage = accumulated1Fees.mul(uint256(10000).sub(slippage)).div(10000);
 
-                    // Add collected fees back into this position as liquidity
+                    // Add collected fees to the existing position
                     (uint128 newLiquidity, uint256 amount0, uint256 amount1) = positionManager.increaseLiquidity(
                         INonfungiblePositionManager.IncreaseLiquidityParams({
                             tokenId: tokenId,
