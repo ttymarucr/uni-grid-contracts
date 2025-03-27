@@ -18,13 +18,17 @@ contract GridPositionManager is Ownable {
         uint256 index;
     }
 
-    Position[] public positions;
-
     IUniswapV3Pool public immutable pool;
     INonfungiblePositionManager public immutable positionManager;
 
+    Position[] public positions;
     uint256 public gridQuantity;
     uint256 public gridStep;
+
+    // Events
+    event Deposit(address indexed owner, uint256 token0Amount, uint256 token1Amount);
+    event Withdraw(address indexed owner, uint256 tokenId, uint128 liquidity);
+    event Compound(address indexed owner, uint256 accumulated0Fees, uint256 accumulated1Fees);
 
     constructor(address _pool, address _positionManager, uint256 _gridQuantity, uint256 _gridStep) {
         require(_pool != address(0), "Invalid pool address");
@@ -113,6 +117,8 @@ contract GridPositionManager is Ownable {
                 })
             );
         }
+
+        emit Deposit(msg.sender, token0Amount, token1Amount);
     }
 
     function withdraw() external onlyOwner {
@@ -140,6 +146,8 @@ contract GridPositionManager is Ownable {
                         amount1Max: type(uint128).max
                     })
                 );
+
+                emit Withdraw(msg.sender, tokenId, liquidity);
             }
         }
     }
@@ -193,6 +201,7 @@ contract GridPositionManager is Ownable {
                         })
                     );
                     positions[i].liquidity = newLiquidity;
+                    emit Compound(msg.sender, accumulated0Fees, accumulated1Fees);
                     break;
                 }
             }
