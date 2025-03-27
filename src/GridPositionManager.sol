@@ -8,8 +8,13 @@ import "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
 import "@uniswap/v3-periphery/contracts/interfaces/IERC20Metadata.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@uniswap/v3-core/contracts/libraries/TickMath.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/math/SafeMath.sol";
+import "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol";
 
-contract GridPositionManager is Ownable {
+contract GridPositionManager is Ownable, ReentrancyGuard {
+    using SafeMath for uint256;
+
     struct Position {
         uint256 tokenId;
         int24 tickLower;
@@ -45,21 +50,22 @@ contract GridPositionManager is Ownable {
         gridStep = _gridStep;
     }
 
-    function deposit(uint256 token0Amount, uint256 token1Amount) public {
+    function deposit(uint256 token0Amount, uint256 token1Amount) public nonReentrant {
         require(token0Amount > 0 && token1Amount > 0, "Token0 and Token1 amount must be greater than 0");
 
         // Fetch the current pool price
         (uint160 sqrtPriceX96,,,,,,) = pool.slot0();
-        uint256 targetPrice = uint256(sqrtPriceX96) * uint256(sqrtPriceX96) / (1 << 192);
+        uint256 targetPrice = uint256(sqrtPriceX96).mul(uint256(sqrtPriceX96)).div(1 << 192);
 
-        IERC20Metadata(pool.token0()).transferFrom(msg.sender, address(this), token0Amount);
-        IERC20Metadata(pool.token1()).transferFrom(msg.sender, address(this), token1Amount);
+        // Transfer tokens to the contract using TransferHelper
+        TransferHelper.safeTransferFrom(pool.token0(), msg.sender, address(this), token0Amount);
+        TransferHelper.safeTransferFrom(pool.token1(), msg.sender, address(this), token1Amount);
 
         uint256[] memory gridPrices = calculateGridPrices(targetPrice);
         require(gridPrices.length > 2, "Invalid grid prices");
 
         uint256 gridLength = gridPrices.length - 1;
-        uint256 halfGridLength = gridLength / 2;
+        uint256 halfGridLength = gridLength.div(2);
 
         for (uint256 i = 0; i < gridLength; i++) {
             uint256 lowerPrice = gridPrices[i];
@@ -68,9 +74,9 @@ contract GridPositionManager is Ownable {
             uint256 amount1Desired = 0;
 
             if (upperPrice < targetPrice) {
-                amount0Desired = token0Amount / halfGridLength;
+                amount0Desired = token0Amount.div(halfGridLength);
             } else if (lowerPrice > targetPrice) {
-                amount1Desired = token1Amount / halfGridLength;
+                amount1Desired = token1Amount.div(halfGridLength);
             } else {
                 continue; // Skip middle grid
             }
@@ -115,8 +121,10 @@ contract GridPositionManager is Ownable {
                     deadline: block.timestamp + 1 hours
                 })
             );
+
             // Add the new position to the active positions list
             activePositionIndexes.push(positions.length);
+
             // Store the position in the array
             positions.push(
                 Position({
@@ -132,7 +140,7 @@ contract GridPositionManager is Ownable {
         emit Deposit(msg.sender, token0Amount, token1Amount);
     }
 
-    function withdraw() external onlyOwner {
+    function withdraw() external onlyOwner nonReentrant {
         for (uint256 i = 0; i < activePositionIndexes.length; i++) {
             uint256 index = activePositionIndexes[i];
             uint256 tokenId = positions[index].tokenId;
@@ -167,7 +175,7 @@ contract GridPositionManager is Ownable {
         }
     }
 
-    function compound(uint256 slippage) external {
+    function compound(uint256 slippage) external nonReentrant {
         uint256 accumulated0Fees = IERC20Metadata(pool.token0()).balanceOf(address(this));
         uint256 accumulated1Fees = IERC20Metadata(pool.token1()).balanceOf(address(this));
         for (uint256 i = 0; i < activePositionIndexes.length; i++) {
@@ -182,9 +190,10 @@ contract GridPositionManager is Ownable {
                     amount1Max: type(uint128).max
                 })
             );
-            accumulated0Fees += amount0Collected;
-            accumulated1Fees += amount1Collected;
+            accumulated0Fees = accumulated0Fees.add(amount0Collected);
+            accumulated1Fees = accumulated1Fees.add(amount1Collected);
         }
+
         // Fetch the current pool price
         (uint160 sqrtPriceX96,,,,,,) = pool.slot0();
         uint256 currentPrice = uint256(sqrtPriceX96) * uint256(sqrtPriceX96) / (1 << 192);
