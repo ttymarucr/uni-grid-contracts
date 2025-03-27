@@ -49,10 +49,10 @@ contract GridPositionManager is Ownable, ReentrancyGuard {
     /**
      * @dev Emitted when liquidity is withdrawn.
      * @param owner Address of the withdrawer.
-     * @param tokenId Token ID of the withdrawn position.
-     * @param liquidity Amount of liquidity withdrawn.
+     * @param token0Amount Amount of token0 deposited.
+     * @param token1Amount Amount of token1 deposited.
      */
-    event Withdraw(address indexed owner, uint256 tokenId, uint128 liquidity);
+    event Withdraw(address indexed owner, uint256 token0Amount, uint256 token1Amount);
 
     /**
      * @dev Emitted when fees are compounded into liquidity.
@@ -61,6 +61,14 @@ contract GridPositionManager is Ownable, ReentrancyGuard {
      * @param accumulated1Fees Total token1 fees compounded.
      */
     event Compound(address indexed owner, uint256 accumulated0Fees, uint256 accumulated1Fees);
+
+    /**
+     * @dev Emitted when the owner performs an emergency withdrawal.
+     * @param owner Address of the owner performing the withdrawal.
+     * @param token0Amount Amount of token0 withdrawn.
+     * @param token1Amount Amount of token1 withdrawn.
+     */
+    event EmergencyWithdraw(address indexed owner, uint256 token0Amount, uint256 token1Amount);
 
     /**
      * @dev Constructor to initialize the contract.
@@ -201,7 +209,7 @@ contract GridPositionManager is Ownable, ReentrancyGuard {
                 positionManager.collect(
                     INonfungiblePositionManager.CollectParams({
                         tokenId: tokenId,
-                        recipient: msg.sender,
+                        recipient: address(this),
                         amount0Max: type(uint128).max,
                         amount1Max: type(uint128).max
                     })
@@ -209,10 +217,17 @@ contract GridPositionManager is Ownable, ReentrancyGuard {
 
                 // Remove the position from the active positions list
                 removeActivePosition(index);
-
-                emit Withdraw(msg.sender, tokenId, liquidity);
             }
         }
+        uint256 accumulated0Fees = IERC20Metadata(pool.token0()).balanceOf(address(this));
+        uint256 accumulated1Fees = IERC20Metadata(pool.token1()).balanceOf(address(this));
+        if (accumulated0Fees > 0) {
+            TransferHelper.safeTransfer(pool.token0(), msg.sender, accumulated0Fees);
+        }
+        if (accumulated1Fees > 0) {
+            TransferHelper.safeTransfer(pool.token1(), msg.sender, accumulated1Fees);
+        }
+        emit Withdraw(msg.sender, accumulated0Fees, accumulated1Fees);
     }
 
     /**
@@ -220,6 +235,8 @@ contract GridPositionManager is Ownable, ReentrancyGuard {
      * @param slippage Maximum allowable slippage for adding liquidity (in basis points, e.g., 100 = 1%).
      */
     function compound(uint256 slippage) external nonReentrant {
+        require(slippage <= 10000, "E11"); // E11: Slippage must be less than or equal to 10000 (100%)
+
         uint256 accumulated0Fees = IERC20Metadata(pool.token0()).balanceOf(address(this));
         uint256 accumulated1Fees = IERC20Metadata(pool.token1()).balanceOf(address(this));
         for (uint256 i = 0; i < activePositionIndexes.length; i++) {
@@ -257,7 +274,7 @@ contract GridPositionManager is Ownable, ReentrancyGuard {
                     uint256 amount1Slippage = accumulated1Fees.mul(uint256(10000).sub(slippage)).div(10000);
 
                     // Add collected fees back into this position as liquidity
-                    (uint128 newLiquidity,,) = positionManager.increaseLiquidity(
+                    (uint128 newLiquidity, uint256 amount0, uint256 amount1) = positionManager.increaseLiquidity(
                         INonfungiblePositionManager.IncreaseLiquidityParams({
                             tokenId: tokenId,
                             amount0Desired: accumulated0Fees,
@@ -268,7 +285,7 @@ contract GridPositionManager is Ownable, ReentrancyGuard {
                         })
                     );
                     positions[index].liquidity = newLiquidity;
-                    emit Compound(msg.sender, accumulated0Fees, accumulated1Fees);
+                    emit Compound(msg.sender, amount0, amount1);
                     break;
                 }
             }
@@ -469,5 +486,40 @@ contract GridPositionManager is Ownable, ReentrancyGuard {
             }
         }
         return false;
+    }
+
+    /**
+     * @dev Emergency withdraw function to recover all funds in the contract.
+     *      Only callable by the contract owner.
+     */
+    function emergencyWithdraw() external onlyOwner {
+        // Withdraw all token0 funds
+        uint256 token0Balance = IERC20Metadata(pool.token0()).balanceOf(address(this));
+        if (token0Balance > 0) {
+            TransferHelper.safeTransfer(pool.token0(), msg.sender, token0Balance);
+        }
+
+        // Withdraw all token1 funds
+        uint256 token1Balance = IERC20Metadata(pool.token1()).balanceOf(address(this));
+        if (token1Balance > 0) {
+            TransferHelper.safeTransfer(pool.token1(), msg.sender, token1Balance);
+        }
+
+        // Emit an event for transparency
+        emit EmergencyWithdraw(msg.sender, token0Balance, token1Balance);
+    }
+
+    /**
+     * @dev Fallback function to prevent Ether transfers to the contract.
+     */
+    receive() external payable {
+        revert("Ether transfers not allowed");
+    }
+
+    /**
+     * @dev Fallback function to handle unexpected calls and prevent Ether from being locked.
+     */
+    fallback() external payable {
+        revert("Function not supported");
     }
 }
