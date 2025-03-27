@@ -25,6 +25,9 @@ contract GridPositionManager is Ownable {
     uint256 public gridQuantity;
     uint256 public gridStep;
 
+    // List of indexes to track active positions with liquidity
+    uint256[] public activePositionIndexes;
+
     // Events
     event Deposit(address indexed owner, uint256 token0Amount, uint256 token1Amount);
     event Withdraw(address indexed owner, uint256 tokenId, uint128 liquidity);
@@ -86,6 +89,9 @@ contract GridPositionManager is Ownable {
                     })
                 );
                 positions[index].liquidity = newLiquidity;
+                if (!isActivePosition(index)) {
+                    activePositionIndexes.push(index);
+                }
                 continue;
             }
 
@@ -105,7 +111,8 @@ contract GridPositionManager is Ownable {
                     deadline: block.timestamp + 1 hours
                 })
             );
-
+            // Add the new position to the active positions list
+            activePositionIndexes.push(positions.length);
             // Store the position in the array
             positions.push(
                 Position({
@@ -146,6 +153,9 @@ contract GridPositionManager is Ownable {
                         amount1Max: type(uint128).max
                     })
                 );
+
+                // Remove the position from the active positions list
+                removeActivePosition(positions[i].index);
 
                 emit Withdraw(msg.sender, tokenId, liquidity);
             }
@@ -252,6 +262,9 @@ contract GridPositionManager is Ownable {
                     })
                 );
 
+                // Remove the position from the active positions list
+                removeActivePosition(positions[i]);
+
                 // Update the position's liquidity to 0
                 positions[i].liquidity = 0;
             }
@@ -275,6 +288,10 @@ contract GridPositionManager is Ownable {
 
     function getPositionsLength() external view returns (uint256) {
         return positions.length;
+    }
+
+    function getActivePositionIndexes() external view returns (uint256[] memory) {
+        return activePositionIndexes;
     }
 
     function calculateGridPrices(uint256 targetPrice) internal view returns (uint256[] memory) {
@@ -323,5 +340,24 @@ contract GridPositionManager is Ownable {
             z = (x / z + z) / 2;
         }
         return y;
+    }
+
+    function removeActivePosition(uint256 index) internal {
+        for (uint256 i = 0; i < activePositionIndexes.length; i++) {
+            if (activePositionIndexes[i] == index) {
+                activePositionIndexes[i] = activePositionIndexes[activePositionIndexes.length - 1];
+                activePositionIndexes.pop();
+                break;
+            }
+        }
+    }
+
+    function isActivePosition(uint256 index) internal view returns (bool) {
+        for (uint256 i = 0; i < activePositionIndexes.length; i++) {
+            if (activePositionIndexes[i] == index) {
+                return true;
+            }
+        }
+        return false;
     }
 }
