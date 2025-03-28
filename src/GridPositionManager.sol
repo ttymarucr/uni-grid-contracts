@@ -90,9 +90,9 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
             uint256 amount1Desired = 0;
 
             if (upperPrice < targetPrice) {
-                amount0Desired = token0Amount.div(halfGridLength);
-            } else if (lowerPrice > targetPrice) {
                 amount1Desired = token1Amount.div(halfGridLength);
+            } else if (lowerPrice > targetPrice) {
+                amount0Desired = token0Amount.div(halfGridLength);
             } else {
                 continue; // Skip middle grid
             }
