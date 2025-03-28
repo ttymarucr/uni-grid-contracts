@@ -1,104 +1,129 @@
 import { expect } from "chai";
-import { createPublicClient, createWalletClient, http, getContract, parseEther } from "viem";
-import { hardhat } from "viem/chains";
-import { deployContract } from "@nomicfoundation/hardhat-toolbox-viem";
+import { ethers } from "hardhat";
 
 describe("GridPositionManager", function () {
   // Base mainnet addresses
   const poolAddress = "0xd0b53D9277642d899DF5C87A3966A349A798F224";
   const positionManagerAddress = "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1";
+  const WETHAddress = "0x4200000000000000000000000000000000000006";
+  const USDCAddress = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+  let amount0 = ethers.utils.parseEther("0.0001");
+  let amount1 = ethers.utils.parseUnits("100", 6);
 
   let gridPositionManager: any;
   let owner: any;
   let addr1: any;
   let addr2: any;
-  let client: any;
+
+  before(async function () {
+    const ownerAddress = "0x737284cFc66fd5989F2AC866989d70Ae134227cB";
+    // Start impersonating the address
+    await ethers.provider.send("hardhat_impersonateAccount", [ownerAddress]);
+    // Get a signer for the impersonated address
+    owner = await ethers.getSigner(ownerAddress);
+    
+    const [funder, address1, address2] = await ethers.getSigners();
+    addr1 = address1;
+    addr2 = address2;
+    // Send ETH to the owner address
+    const tx = await funder.sendTransaction({
+        to: ownerAddress,
+        value: ethers.utils.parseEther("10"), // Amount to send (10 ETH in this case)
+    });
+
+    await tx.wait();
+    const wethContract = await ethers.getContractAt("IERC20", WETHAddress);
+    const usdcContract = await ethers.getContractAt("IERC20", USDCAddress);
+
+    const wethBalance = await wethContract.balanceOf(owner.address);
+    const usdcBalance = await usdcContract.balanceOf(owner.address);
+
+    console.log("Owner WETH Balance:", wethBalance.toString());
+    console.log("Owner USDC Balance:", usdcBalance.toString());
+    const wethBalancePercentage = wethBalance.div(100); // 1% of WETH balance
+    const usdcBalancePercentage = usdcBalance.div(100); // 1% of USDC balance
+
+    amount0 = wethBalancePercentage;
+    amount1 = usdcBalancePercentage;
+
+    console.log("Amount0 (1% WETH):", amount0.toString());
+    console.log("Amount1 (1% USDC):", amount1.toString());
+  });
 
   beforeEach(async function () {
-    client = createPublicClient({ chain: hardhat, transport: http() });
-    const walletClient = createWalletClient({ chain: hardhat, transport: http() });
-    [owner, addr1, addr2] = await walletClient.getAddresses();
+    const iUniswapV3Pool = await ethers.getContractAt("IUniswapV3Pool", poolAddress);
 
-    const mockPool = await deployContract(walletClient, {
-      abi: [], // Replace with MockPool ABI
-      bytecode: "0x...", // Replace with MockPool bytecode
-    });
+    const iNonfungiblePositionManager = await ethers.getContractAt("INonfungiblePositionManager", positionManagerAddress);
 
-    const mockPositionManager = await deployContract(walletClient, {
-      abi: [], // Replace with MockPositionManager ABI
-      bytecode: "0x...", // Replace with MockPositionManager bytecode
-    });
+    const GridPositionManager = await ethers.getContractFactory("GridPositionManager");
+    gridPositionManager = await GridPositionManager.connect(owner).deploy(
+      iUniswapV3Pool.address,
+      iNonfungiblePositionManager.address,
+      10,
+      1
+    );
+    await gridPositionManager.deployed();
+    const wethContract = await ethers.getContractAt("IERC20", WETHAddress);
+    const usdcContract = await ethers.getContractAt("IERC20", USDCAddress);
 
-    const gridPositionManagerDeployment = await deployContract(walletClient, {
-      abi: [], // Replace with GridPositionManager ABI
-      bytecode: "0x...", // Replace with GridPositionManager bytecode
-      args: [mockPool.address, mockPositionManager.address, 10, 1],
-    });
-
-    gridPositionManager = getContract({
-      address: gridPositionManagerDeployment.address,
-      abi: [], // Replace with GridPositionManager ABI
-      publicClient: client,
-    });
+    // Approve GridPositionManager to spend WETH and USDC
+    await wethContract.connect(owner).approve(gridPositionManager.address, amount0);
+    await usdcContract.connect(owner).approve(gridPositionManager.address, amount1);
   });
 
   it("Should initialize with correct parameters", async function () {
-    const gridQuantity = await gridPositionManager.read.getGridQuantity();
-    const gridStep = await gridPositionManager.read.getGridStep();
-    expect(gridQuantity).to.equal(10n);
-    expect(gridStep).to.equal(1n);
+    const gridQuantity = await gridPositionManager.getGridQuantity();
+    const gridStep = await gridPositionManager.getGridStep();
+    expect(gridQuantity).to.equal(10);
+    expect(gridStep).to.equal(1);
   });
 
   it("Should allow the owner to update grid step", async function () {
-    await gridPositionManager.write.updateGridStep({ args: [5], account: owner });
-    const gridStep = await gridPositionManager.read.getGridStep();
-    expect(gridStep).to.equal(5n);
+    await gridPositionManager.connect(owner).updateGridStep(5);
+    const gridStep = await gridPositionManager.getGridStep();
+    expect(gridStep).to.equal(5);
   });
 
   it("Should revert if non-owner tries to update grid step", async function () {
-    await expect(
-      gridPositionManager.write.updateGridStep({ args: [5], account: addr1 })
-    ).to.be.rejectedWith("Ownable: caller is not the owner");
+    await expect(gridPositionManager.connect(addr1).updateGridStep(5)).to.be.rejectedWith(
+      "Ownable: caller is not the owner"
+    );
   });
 
   it("Should allow deposits and emit Deposit event", async function () {
-    await expect(
-      gridPositionManager.write.deposit({ args: [1000, 2000], account: owner })
-    ).to.emit(gridPositionManager, "Deposit").withArgs(owner, 1000, 2000);
+    await expect(gridPositionManager.connect(owner).deposit(amount0, amount1))
+      .to.emit(gridPositionManager, "Deposit")
+      .withArgs(owner.address, amount0, amount1);
   });
 
   it("Should allow the owner to withdraw and emit Withdraw event", async function () {
-    await gridPositionManager.write.deposit({ args: [1000, 2000], account: owner });
-    await expect(gridPositionManager.write.withdraw({ account: owner }))
+    await gridPositionManager.connect(owner).deposit(amount0, amount1);
+    await expect(gridPositionManager.withdraw())
       .to.emit(gridPositionManager, "Withdraw")
-      .withArgs(owner, 0, 0); // Mock balances
+      .withArgs(owner.address, 0, 0); // Mock balances
   });
 
   it("Should revert if non-owner tries to withdraw", async function () {
-    await expect(gridPositionManager.write.withdraw({ account: addr1 })).to.be.rejectedWith(
+    await expect(gridPositionManager.connect(addr1).withdraw()).to.be.rejectedWith(
       "Ownable: caller is not the owner"
     );
   });
 
   it("Should allow compounding fees", async function () {
-    await gridPositionManager.write.deposit({ args: [1000, 2000], account: owner });
-    await expect(gridPositionManager.write.compound({ args: [100], account: owner })).to.emit(
-      gridPositionManager,
-      "Compound"
-    );
+    await gridPositionManager.connect(owner).deposit(amount0, amount1);
+    await expect(gridPositionManager.connect(owner).compound(100)).to.emit(gridPositionManager, "Compound");
   });
 
   it("Should allow sweeping positions", async function () {
-    await gridPositionManager.write.deposit({ args: [1000, 2000], account: owner });
-    await expect(gridPositionManager.write.sweep({ account: owner })).to.not.be.rejected;
+    await gridPositionManager.connect(owner).deposit(amount0, amount1);
+    await expect(gridPositionManager.sweep()).to.not.be.rejected;
   });
 
   it("Should revert Ether transfers", async function () {
     await expect(
-      client.sendTransaction({
+      owner.sendTransaction({
         to: gridPositionManager.address,
-        value: parseEther("1"),
-        account: owner,
+        value: ethers.utils.parseEther("1"),
       })
     ).to.be.rejectedWith("Ether transfers not allowed");
   });

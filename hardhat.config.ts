@@ -1,7 +1,10 @@
 import type { HardhatUserConfig } from "hardhat/config";
 import "@nomicfoundation/hardhat-toolbox-viem";
+import "@nomicfoundation/hardhat-ethers";
+import "@nomiclabs/hardhat-waffle";
 
 const config: HardhatUserConfig = {
+  defaultNetwork: "hardhat",
   solidity: {
     version: "0.7.6", // Updated to match the contract's Solidity version
     settings: {
@@ -14,8 +17,10 @@ const config: HardhatUserConfig = {
   networks: {
     hardhat: {
       forking: {
-        url: "https://mainnet.base.org", // Replace with the actual Base mainnet RPC URL
+        url: "https://base-mainnet.g.alchemy.com/v2/_zTD3BWOgxR-BQ1lHisJL86d8LP8XBaF", // Replace with the actual Base mainnet RPC URL
+        blockNumber: 28203460, // Replace with the desired block number for forking
       },
+      chainId: 8453,
     },
   },
   paths: {
