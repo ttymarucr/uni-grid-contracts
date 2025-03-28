@@ -4,4 +4,4 @@ out = "out"
 libs = ["lib"]
 optimizer = false
 auto_detect_solc = true
-evm_version = "paris"
+evm_version = "istanbul"
