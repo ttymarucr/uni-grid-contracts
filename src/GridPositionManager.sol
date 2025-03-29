@@ -33,6 +33,8 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
     uint256 public token0MinFees; // Minimum fees for token0
     uint256 public token1MinFees; // Minimum fees for token1
 
+    uint256 public constant MIN_TWAP_WINDOW = 300; // 5 minutes
+
     /**
      * @dev Modifier to restrict access to the contract owner or the contract itself.
      */
@@ -79,16 +81,13 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
         selfOrOwner
     {
         require(token0Amount > 0 && token1Amount > 0, "E5"); // E5: Token0 and Token1 amount must be greater than 0
-        require(slippage <= 10000, "E11"); // E11: Slippage must be less than or equal to 10000 (100%)
-
-        // Fetch the current pool tick
-        (, int24 currentTick,,,,,) = pool.slot0();
+        require(slippage <= 500, "E11"); // E11: Slippage must be less than or equal to 500 (5%)
 
         // Transfer tokens to the contract using TransferHelper
         TransferHelper.safeTransferFrom(pool.token0(), msg.sender, address(this), token0Amount);
         TransferHelper.safeTransferFrom(pool.token1(), msg.sender, address(this), token1Amount);
 
-        _deposit(currentTick, slippage);
+        _deposit(slippage);
     }
 
     /**
@@ -106,6 +105,9 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
         uint256 halfGridLength,
         uint256 slippage
     ) internal {
+        require(tickLower < tickUpper, "Invalid tick range");
+        require(tickLower % pool.tickSpacing() == 0 && tickUpper % pool.tickSpacing() == 0, "Ticks must align with spacing");
+
         uint256 token0Balance = IERC20Metadata(pool.token0()).balanceOf(address(this));
         uint256 token1Balance = IERC20Metadata(pool.token1()).balanceOf(address(this));
         uint256 amount0Desired;
@@ -186,14 +188,11 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
      * @param slippage Maximum allowable slippage for adding liquidity (in basis points, e.g., 100 = 1%).
      */
     function compound(uint256 slippage) external override nonReentrant {
-        require(slippage <= 10000, "E11"); // E11: Slippage must be less than or equal to 10000 (100%)
+        require(slippage <= 500, "E11"); // E11: Slippage must be less than or equal to 500 (5%)
 
         uint256 accumulated0Fees = IERC20Metadata(pool.token0()).balanceOf(address(this));
         uint256 accumulated1Fees = IERC20Metadata(pool.token1()).balanceOf(address(this));
         uint256 activePositions = activePositionIndexes.length;
-
-        // Fetch the current pool tick
-        (, int24 currentTick,,,,,) = pool.slot0();
 
         for (uint256 i = 0; i < activePositions; i++) {
             uint256 index = activePositionIndexes[i];
@@ -214,7 +213,7 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
 
         // Check if there are any fees to compound
         if (accumulated0Fees > token0MinFees || accumulated1Fees > token1MinFees) {
-            _deposit(currentTick, slippage);
+            _deposit(slippage);
             emit Compound(msg.sender, accumulated0Fees, accumulated1Fees);
         }
     }
@@ -224,9 +223,11 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
      * @param slippage Maximum allowable slippage for adding liquidity (in basis points, e.g., 100 = 1%).
      */
     function sweep(uint256 slippage) external override {
-        require(slippage <= 10000, "E11"); // E11: Slippage must be less than or equal to 10000 (100%)
+        require(slippage <= 500, "E11"); // E11: Slippage must be less than or equal to 500 (5%)
         // Fetch the current pool tick
         (, int24 currentTick,,,,,) = pool.slot0();
+        int24 averageTick = _getTWAP();
+        _validatePrice(currentTick, averageTick, 100); // Allow max deviation of 100 ticks
 
         int24 tickRange = int24(gridQuantity / 2) * int24(gridStep);
         int24 lowerBound = currentTick - tickRange;
@@ -273,7 +274,7 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
         uint256 accumulated0Fees = IERC20Metadata(pool.token0()).balanceOf(address(this));
         uint256 accumulated1Fees = IERC20Metadata(pool.token1()).balanceOf(address(this));
         if (accumulated0Fees > token0MinFees || accumulated1Fees > token1MinFees) {
-            _deposit(currentTick, slippage);
+            _deposit(slippage);
         }
     }
 
@@ -281,7 +282,7 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
      * @dev Emergency withdraw function to recover all funds in the contract.
      *      Only callable by the contract owner.
      */
-    function emergencyWithdraw() external onlyOwner {
+    function emergencyWithdraw() external onlyOwner nonReentrant {
         // Iterate over active positions and transfer tokens to the sender
         while (activePositionIndexes.length > 0) {
             uint256 i = activePositionIndexes.length - 1;
@@ -348,6 +349,7 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
     function setGridStep(uint256 _newGridStep) external override onlyOwner {
         require(_newGridStep > 0 && _newGridStep < 10000, "E6"); // E6: Grid step must be greater than 0 and less than 10000
         gridStep = _newGridStep;
+        emit GridStepUpdated(_newGridStep);
     }
 
     /**
@@ -361,6 +363,7 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
             "E7" // E7: Price range percentage must be greater than 0 and less than 10000
         );
         gridQuantity = _newGridQuantity;
+        emit GridQuantityUpdated(_newGridQuantity);
     }
 
     /**
@@ -372,6 +375,7 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
     function setMinFees(uint256 _token0MinFees, uint256 _token1MinFees) external override onlyOwner {
         token0MinFees = _token0MinFees;
         token1MinFees = _token1MinFees;
+        emit MinFeesUpdated(_token0MinFees, _token1MinFees);
     }
 
     /**
@@ -391,7 +395,11 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
     }
 
     
-    function _deposit(int24 currentTick, uint256 slippage) internal {
+    function _deposit(uint256 slippage) internal {
+        // Fetch the current pool tick
+        (, int24 currentTick,,,,,) = pool.slot0();
+        int24 averageTick = _getTWAP();
+        _validatePrice(currentTick, averageTick, 100); // Allow max deviation of 100 ticks
         int24[] memory gridTicks = _calculateGridTicks(currentTick);
         require(gridTicks.length > 2, "Invalid grid ticks");
 
@@ -570,9 +578,8 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
      * @param index The index of the position to remove.
      */
     function _removeActivePosition(uint256 index) internal {
-        uint256 lastIndex = activePositionIndexes.length - 1;
-        if (index != lastIndex) {
-            activePositionIndexes[index] = activePositionIndexes[lastIndex];
+        if (index < activePositionIndexes.length - 1) {
+            activePositionIndexes[index] = activePositionIndexes[activePositionIndexes.length - 1];
         }
         activePositionIndexes.pop();
     }
@@ -625,5 +632,60 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
     function getPosition(uint256 index) external view override returns (Position memory) {
         require(index < positions.length, "E12"); // E12: Index out of bounds
         return positions[index];
+    }
+
+    /**
+     * @dev Recovers Ether stored in the contract.
+     *      Only callable by the contract owner.
+     */
+    function recoverEther() external onlyOwner nonReentrant {
+        uint256 balance = address(this).balance;
+        require(balance > 0, "No Ether to recover");
+        (bool success, ) = msg.sender.call{value: balance}("");
+        require(success, "Ether transfer failed");
+    }
+
+    /**
+     * @dev Fetches the Time Weighted Average Price (TWAP) tick over a given time window.
+     * @param secondsAgo The time window in seconds for calculating the TWAP.
+     * @return averageTick The average tick over the specified time window.
+     */
+    function _getTWAP(int24 secondsAgo) internal view returns (int24 averageTick) {
+        require(secondsAgo > 0, "Invalid time window");
+
+        // Fetch the current and historical tick data
+        uint32[] memory secondsAgos = new uint32[](2);
+        secondsAgos[0] = uint32(secondsAgo); // Start of the time window
+        secondsAgos[1] = 0;                 // Current time
+
+        (int56[] memory tickCumulatives, ) = pool.observe(secondsAgos);
+
+        // Calculate the average tick over the time window
+        int56 tickDifference = tickCumulatives[1] - tickCumulatives[0];
+        averageTick = int24(tickDifference / secondsAgo);
+
+        // Ensure the result fits within the tick range
+        if (tickDifference < 0 && (tickDifference % secondsAgo != 0)) {
+            averageTick--;
+        }
+    }
+
+    /**
+     * @dev Fetches the Time Weighted Average Price (TWAP) tick over the default time window.
+     * @return The average tick over the default time window.
+     */
+    function _getTWAP() internal view returns (int24) {
+        return _getTWAP(int24(MIN_TWAP_WINDOW));
+    }
+
+    /**
+     * @dev Validates the price deviation between the current tick and TWAP tick.
+     * @param currentTick The current tick of the pool.
+     * @param twapTick The TWAP tick of the pool.
+     * @param maxDeviation The maximum allowable deviation.
+     */
+    function _validatePrice(int24 currentTick, int24 twapTick, uint256 maxDeviation) internal pure {
+        int24 deviation = currentTick > twapTick ? currentTick - twapTick : twapTick - currentTick;
+        require(deviation <= int24(maxDeviation), "Price deviation too high");
     }
 }

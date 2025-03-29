@@ -44,6 +44,10 @@ interface IGridPositionManager {
      */
     event EmergencyWithdraw(address indexed owner, uint256 token0Amount, uint256 token1Amount);
 
+    event GridStepUpdated(uint256 newGridStep);
+    event GridQuantityUpdated(uint256 newGridQuantity);
+    event MinFeesUpdated(uint256 token0MinFees, uint256 token1MinFees);
+
     function getPool() external view returns (address);
     function getPositionManager() external view returns (address);
     function getGridQuantity() external view returns (uint256);

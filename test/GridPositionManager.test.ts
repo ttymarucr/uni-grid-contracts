@@ -54,7 +54,6 @@ describe("GridPositionManager", function () {
 
   beforeEach(async function () {
     const iUniswapV3Pool = await ethers.getContractAt("IUniswapV3Pool", poolAddress);
-
     const iNonfungiblePositionManager = await ethers.getContractAt("INonfungiblePositionManager", positionManagerAddress);
 
     const GridPositionManager = await ethers.getContractFactory("GridPositionManager");
@@ -65,6 +64,7 @@ describe("GridPositionManager", function () {
       1
     );
     await gridPositionManager.deployed();
+
     const wethContract = await ethers.getContractAt("IERC20", WETHAddress);
     const usdcContract = await ethers.getContractAt("IERC20", USDCAddress);
 
