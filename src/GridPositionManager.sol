@@ -282,9 +282,14 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
         uint256 accumulated0Fees = IERC20Metadata(pool.token0()).balanceOf(address(this));
         uint256 accumulated1Fees = IERC20Metadata(pool.token1()).balanceOf(address(this));
         uint256 activePositions = activePositionIndexes.length;
+
+        // Fetch the current pool tick
+        (, int24 currentTick,,,,,) = pool.slot0();
+
         for (uint256 i = 0; i < activePositions; i++) {
             uint256 index = activePositionIndexes[i];
             uint256 tokenId = positions[index].tokenId;
+
             // Collect fees
             (uint256 amount0Collected, uint256 amount1Collected) = positionManager.collect(
                 INonfungiblePositionManager.CollectParams({
@@ -304,13 +309,10 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
                 uint256 index = activePositionIndexes[i];
                 uint256 tokenId = positions[index].tokenId;
 
-                // Determine the current pool position based on the price
-                (uint160 sqrtPriceX96,,,,,,) = pool.slot0();
-                uint256 currentPrice = uint256(sqrtPriceX96) * uint256(sqrtPriceX96) / (1 << 192);
-
+                // Check if the position is within the current tick range
                 if (
-                    currentPrice >= uint256(TickMath.getSqrtRatioAtTick(positions[index].tickLower))
-                        && currentPrice <= uint256(TickMath.getSqrtRatioAtTick(positions[index].tickUpper))
+                    currentTick >= positions[index].tickLower &&
+                    currentTick <= positions[index].tickUpper
                 ) {
                     // Calculate slippage-adjusted amounts
                     uint256 amount0Slippage = accumulated0Fees.mul(uint256(10000).sub(slippage)).div(10000);
