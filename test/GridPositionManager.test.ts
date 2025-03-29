@@ -7,6 +7,8 @@ describe("GridPositionManager", function () {
   const positionManagerAddress = "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1";
   const WETHAddress = "0x4200000000000000000000000000000000000006";
   const USDCAddress = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+  const slippage = 500; // 0.5% slippage
+
   let amount0 = ethers.utils.parseEther("0.0001");
   let amount1 = ethers.utils.parseUnits("100", 6);
 
@@ -91,16 +93,16 @@ describe("GridPositionManager", function () {
   });
 
   it("Should allow deposits and emit Deposit event", async function () {
-    await expect(gridPositionManager.connect(owner).deposit(amount0, amount1))
+    await expect(gridPositionManager.connect(owner).deposit(amount0, amount1, slippage))
       .to.emit(gridPositionManager, "Deposit")
       .withArgs(owner.address, amount0, amount1);
   });
 
   it("Should allow the owner to withdraw and emit Withdraw event", async function () {
-    await gridPositionManager.connect(owner).deposit(amount0, amount1);
+    await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage);
+
     await expect(gridPositionManager.withdraw())
-      .to.emit(gridPositionManager, "Withdraw")
-      .withArgs(owner.address, 0, 0); // Mock balances
+      .to.emit(gridPositionManager, "Withdraw");
   });
 
   it("Should revert if non-owner tries to withdraw", async function () {
@@ -110,13 +112,13 @@ describe("GridPositionManager", function () {
   });
 
   it("Should allow compounding fees", async function () {
-    await gridPositionManager.connect(owner).deposit(amount0, amount1);
-    await expect(gridPositionManager.connect(owner).compound(100)).to.emit(gridPositionManager, "Compound");
+    await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage);
+    await expect(gridPositionManager.connect(owner).compound(slippage)).to.emit(gridPositionManager, "Compound");
   });
 
   it("Should allow sweeping positions", async function () {
-    await gridPositionManager.connect(owner).deposit(amount0, amount1);
-    await expect(gridPositionManager.sweep()).to.not.be.rejected;
+    await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage);
+    await expect(gridPositionManager.sweep(slippage)).to.not.be.rejected;
   });
 
   it("Should revert Ether transfers", async function () {

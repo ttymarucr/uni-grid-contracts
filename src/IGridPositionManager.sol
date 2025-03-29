@@ -53,8 +53,9 @@ interface IGridPositionManager {
      * @dev Deposits liquidity into grid positions.
      * @param token0Amount Amount of token0 to deposit.
      * @param token1Amount Amount of token1 to deposit.
+     * @param slippage Maximum allowable slippage for adding liquidity (in basis points, e.g., 100 = 1%).
      */
-    function deposit(uint256 token0Amount, uint256 token1Amount) external;
+    function deposit(uint256 token0Amount, uint256 token1Amount, uint256 slippage) external;
 
     /**
      * @dev Withdraws all liquidity from active positions.
@@ -70,8 +71,9 @@ interface IGridPositionManager {
 
     /**
      * @dev Sweeps positions outside the price range and redeposits the collected tokens.
+     * @param slippage Maximum allowable slippage for adding liquidity (in basis points, e.g., 100 = 1%).
      */
-    function sweep() external;
+    function sweep(uint256 slippage) external;
 
     /**
      * @dev Updates the grid step size.

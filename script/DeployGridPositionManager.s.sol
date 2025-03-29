@@ -6,6 +6,7 @@ import "../src/GridPositionManager.sol";
 
 contract DeployGridPositionManager is Script {
     function run() external {
+        vm.createSelectFork("base");
         vm.startBroadcast();
 
         // Deploy the GridPositionManager contract

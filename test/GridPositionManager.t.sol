@@ -47,7 +47,7 @@ contract GridPositionManagerTest is Test {
             mockPositionManager, abi.encodeWithSelector(INonfungiblePositionManager.mint.selector), abi.encode(1, 0, 0)
         );
 
-        manager.deposit(token0Amount, token1Amount);
+        manager.deposit(token0Amount, token1Amount, 500);
 
         // Validate balances
         assertEq(token0.balanceOf(address(manager)), token0Amount);
@@ -69,7 +69,7 @@ contract GridPositionManagerTest is Test {
             mockPositionManager, abi.encodeWithSelector(INonfungiblePositionManager.mint.selector), abi.encode(2, 0, 0)
         );
 
-        manager.deposit(token0Amount, token1Amount);
+        manager.deposit(token0Amount, token1Amount, 500);
 
         // Mock collecting fees
         vm.mockCall(
@@ -108,7 +108,7 @@ contract GridPositionManagerTest is Test {
         );
 
         // Call deposit
-        manager.deposit(token0Amount, token1Amount);
+        manager.deposit(token0Amount, token1Amount, 500);
 
         // Validate balances
         assertEq(token0.balanceOf(address(manager)), token0Amount);
@@ -131,7 +131,7 @@ contract GridPositionManagerTest is Test {
             mockPositionManager, abi.encodeWithSelector(INonfungiblePositionManager.mint.selector), abi.encode(1, 0, 0)
         );
 
-        manager.deposit(token0Amount, token1Amount);
+        manager.deposit(token0Amount, token1Amount, 500);
 
         // Mock position details
         vm.mockCall(

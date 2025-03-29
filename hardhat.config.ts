@@ -2,6 +2,7 @@ import type { HardhatUserConfig } from "hardhat/config";
 import "@nomicfoundation/hardhat-toolbox-viem";
 import "@nomicfoundation/hardhat-ethers";
 import "@nomiclabs/hardhat-waffle";
+// import "@tenderly/hardhat-tenderly";
 
 const config: HardhatUserConfig = {
   defaultNetwork: "hardhat",
@@ -22,10 +23,20 @@ const config: HardhatUserConfig = {
       },
       chainId: 8453,
     },
+    // virtual_base: {
+    //   url: "https://virtual.base.rpc.tenderly.co/7fca977f-3859-498e-a29b-29e23db5fa69",
+    //   chainId: 8453,
+    //   currency: "VETH"
+    // },
   },
   paths: {
     sources: "./src"
   },
+  // tenderly: {
+  //   // https://docs.tenderly.co/account/projects/account-project-slug
+  //   project: "project",
+  //   username: "ttymarucr",
+  // },
 };
 
 export default config;

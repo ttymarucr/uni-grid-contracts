@@ -6,6 +6,7 @@
   "private": false,
   "scripts": {
     "test": "npx hardhat test",
+    "test:tenderly": "TENDERLY_AUTOMATIC_VERIFICATION=true npx hardhat test --network virtual_base",
     "build": "npx hardhat compile",
     "coverage": "SOLIDITY_COVERAGE=true npx hardhat coverage",
     "coverage:report": "npx hardhat coverage --reporter text-summary",
@@ -24,6 +25,7 @@
     "@nomicfoundation/ignition-core": "^0.15.10",
     "@nomiclabs/hardhat-ethers": "^2.2.3",
     "@nomiclabs/hardhat-waffle": "^2.0.6",
+    "@tenderly/hardhat-tenderly": "^1.0.0",
     "@types/chai": "^4.2.0",
     "@types/chai-as-promised": "^7.1.6",
     "@types/mocha": ">=9.1.0",

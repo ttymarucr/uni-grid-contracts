@@ -12,12 +12,12 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol";
 import "./IGridPositionManager.sol";
-
 /**
  * @title GridPositionManager
  * @dev Manages grid-based liquidity positions on Uniswap V3.
  *      Allows depositing, withdrawing, compounding, and sweeping liquidity positions.
  */
+
 contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
     using SafeMath for uint256;
 
@@ -65,95 +65,160 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
      * @dev Deposits liquidity into grid positions.
      * @param token0Amount Amount of token0 to deposit.
      * @param token1Amount Amount of token1 to deposit.
+     * @param slippage Maximum allowable slippage for adding liquidity (in basis points, e.g., 100 = 1%).
      */
-    function deposit(uint256 token0Amount, uint256 token1Amount) public override nonReentrant selfOrOwner {
+    function deposit(uint256 token0Amount, uint256 token1Amount, uint256 slippage)
+        public
+        override
+        nonReentrant
+        selfOrOwner
+    {
         require(token0Amount > 0 && token1Amount > 0, "E5"); // E5: Token0 and Token1 amount must be greater than 0
 
-        // Fetch the current pool price
-        (uint160 sqrtPriceX96,,,,,,) = pool.slot0();
-        uint256 targetPrice = uint256(sqrtPriceX96).mul(uint256(sqrtPriceX96)).div(1 << 192);
+        // Fetch the current pool tick
+        (, int24 currentTick,,,,,) = pool.slot0();
 
         // Transfer tokens to the contract using TransferHelper
         TransferHelper.safeTransferFrom(pool.token0(), msg.sender, address(this), token0Amount);
         TransferHelper.safeTransferFrom(pool.token1(), msg.sender, address(this), token1Amount);
 
-        uint256[] memory gridPrices = calculateGridPrices(targetPrice);
-        require(gridPrices.length > 2, "Invalid grid prices");
+        int24[] memory gridTicks = calculateGridTicks(currentTick);
+        require(gridTicks.length > 2, "Invalid grid ticks");
 
-        uint256 gridLength = gridPrices.length - 1;
+        uint256 gridLength = gridTicks.length - 1;
         uint256 halfGridLength = gridLength.div(2);
 
         for (uint256 i = 0; i < gridLength; i++) {
-            uint256 lowerPrice = gridPrices[i];
-            uint256 upperPrice = gridPrices[i + 1];
-            uint256 amount0Desired = 0;
-            uint256 amount1Desired = 0;
+            // Extracted logic for calculating desired amounts and handling positions
+            handlePosition(gridTicks[i], gridTicks[i + 1], currentTick, halfGridLength - (i % halfGridLength), slippage);
+        }
+        emit Deposit(msg.sender, token0Amount, token1Amount);
+    }
 
-            if (upperPrice < targetPrice) {
-                amount1Desired = token1Amount.div(halfGridLength);
-            } else if (lowerPrice > targetPrice) {
-                amount0Desired = token0Amount.div(halfGridLength);
-            } else {
-                continue; // Skip middle grid
-            }
+    /**
+     * @dev Handles the logic for calculating desired amounts and managing positions.
+     * @param tickLower The lower tick of the grid.
+     * @param tickUpper The upper tick of the grid.
+     * @param currentTick The current tick of the pool.
+     * @param halfGridLength Half the length of the grid.
+     * @param slippage Maximum allowable slippage for adding liquidity (in basis points).
+     */
+    function handlePosition(
+        int24 tickLower,
+        int24 tickUpper,
+        int24 currentTick,
+        uint256 halfGridLength,
+        uint256 slippage
+    ) internal {
+        uint256 token0Balance = IERC20Metadata(pool.token0()).balanceOf(address(this));
+        uint256 token1Balance = IERC20Metadata(pool.token1()).balanceOf(address(this));
+        uint256 amount0Desired;
+        uint256 amount1Desired;
 
-            int24 tickLower = getTickFromPrice(lowerPrice);
-            int24 tickUpper = getTickFromPrice(upperPrice);
-
-            // Check if the position already exists
-            (uint256 existingTokenId, uint256 index) = getPositionFromTicks(tickLower, tickUpper);
-            if (existingTokenId > 0) {
-                // Add liquidity to the existing position
-                (uint128 newLiquidity,,) = positionManager.increaseLiquidity(
-                    INonfungiblePositionManager.IncreaseLiquidityParams({
-                        tokenId: existingTokenId,
-                        amount0Desired: amount0Desired,
-                        amount1Desired: amount1Desired,
-                        amount0Min: amount0Desired,
-                        amount1Min: amount1Desired,
-                        deadline: block.timestamp + 1 hours
-                    })
-                );
-                positions[index].liquidity = newLiquidity;
-                if (!isActivePosition(index)) {
-                    activePositionIndexes.push(index);
-                }
-                continue;
-            }
-
-            // Mint position and store the token ID
-            (uint256 tokenId, uint128 liquidity,,) = positionManager.mint(
-                INonfungiblePositionManager.MintParams({
-                    token0: pool.token0(),
-                    token1: pool.token1(),
-                    fee: pool.fee(),
-                    tickLower: tickLower,
-                    tickUpper: tickUpper,
-                    amount0Desired: amount0Desired,
-                    amount1Desired: amount1Desired,
-                    amount0Min: amount0Desired,
-                    amount1Min: amount1Desired,
-                    recipient: address(this),
-                    deadline: block.timestamp + 1 hours
-                })
-            );
-
-            // Store the position in the array
-            positions.push(
-                Position({
-                    tokenId: tokenId,
-                    tickLower: tickLower,
-                    tickUpper: tickUpper,
-                    liquidity: liquidity,
-                    index: positions.length
-                })
-            );
-
-            // Add the new position to the active positions list
-            activePositionIndexes.push(positions.length - 1); // Use positions.length - 1 directly
+        if (tickUpper < currentTick) {
+            amount1Desired = token1Balance.div(halfGridLength);
+        } else if (tickLower > currentTick) {
+            amount0Desired = token0Balance.div(halfGridLength);
+        } else {
+            return; // Skip middle grid
         }
 
-        emit Deposit(msg.sender, token0Amount, token1Amount);
+        // Calculate slippage-adjusted amounts
+        uint256 amount0Slippage = amount0Desired.mul(uint256(10000).sub(slippage)).div(10000);
+        uint256 amount1Slippage = amount1Desired.mul(uint256(10000).sub(slippage)).div(10000);
+
+        // Check if the position already exists
+        (uint256 existingTokenId, uint256 index) = getPositionFromTicks(tickLower, tickUpper);
+        if (existingTokenId > 0) {
+            addLiquidityToExistingPosition(
+                existingTokenId, index, amount0Desired, amount1Desired, amount0Slippage, amount1Slippage
+            );
+            return;
+        }
+
+        // Mint a new position
+        mintNewPosition(tickLower, tickUpper, amount0Desired, amount1Desired, amount0Slippage, amount1Slippage);
+    }
+
+    /**
+     * @dev Adds liquidity to an existing position.
+     * @param tokenId The token ID of the existing position.
+     * @param index The index of the position in the positions array.
+     * @param amount0Desired Desired amount of token0.
+     * @param amount1Desired Desired amount of token1.
+     * @param amount0Min Minimum amount of token0 (after slippage).
+     * @param amount1Min Minimum amount of token1 (after slippage).
+     */
+    function addLiquidityToExistingPosition(
+        uint256 tokenId,
+        uint256 index,
+        uint256 amount0Desired,
+        uint256 amount1Desired,
+        uint256 amount0Min,
+        uint256 amount1Min
+    ) internal {
+        (uint128 newLiquidity,,) = positionManager.increaseLiquidity(
+            INonfungiblePositionManager.IncreaseLiquidityParams({
+                tokenId: tokenId,
+                amount0Desired: amount0Desired,
+                amount1Desired: amount1Desired,
+                amount0Min: amount0Min,
+                amount1Min: amount1Min,
+                deadline: block.timestamp + 1 hours
+            })
+        );
+        positions[index].liquidity = newLiquidity;
+        if (!isActivePosition(index)) {
+            activePositionIndexes.push(index);
+        }
+    }
+
+    /**
+     * @dev Mints a new position.
+     * @param tickLower The lower tick of the grid.
+     * @param tickUpper The upper tick of the grid.
+     * @param amount0Desired Desired amount of token0.
+     * @param amount1Desired Desired amount of token1.
+     * @param amount0Min Minimum amount of token0 (after slippage).
+     * @param amount1Min Minimum amount of token1 (after slippage).
+     */
+    function mintNewPosition(
+        int24 tickLower,
+        int24 tickUpper,
+        uint256 amount0Desired,
+        uint256 amount1Desired,
+        uint256 amount0Min,
+        uint256 amount1Min
+    ) internal {
+        (uint256 tokenId, uint128 liquidity,,) = positionManager.mint(
+            INonfungiblePositionManager.MintParams({
+                token0: pool.token0(),
+                token1: pool.token1(),
+                fee: pool.fee(),
+                tickLower: tickLower,
+                tickUpper: tickUpper,
+                amount0Desired: amount0Desired,
+                amount1Desired: amount1Desired,
+                amount0Min: amount0Min,
+                amount1Min: amount1Min,
+                recipient: address(this),
+                deadline: block.timestamp + 1 hours
+            })
+        );
+
+        // Store the position in the array
+        positions.push(
+            Position({
+                tokenId: tokenId,
+                tickLower: tickLower,
+                tickUpper: tickUpper,
+                liquidity: liquidity,
+                index: positions.length
+            })
+        );
+
+        // Add the new position to the active positions list
+        activePositionIndexes.push(positions.length - 1); // Use positions.length - 1 directly
     }
 
     /**
@@ -227,7 +292,7 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
             accumulated1Fees = accumulated1Fees.add(amount1Collected);
         }
 
-        // Perform state changes after all external calls
+        // Check if there are any fees to compound
         if (accumulated0Fees > 0 || accumulated1Fees > 0) {
             for (uint256 i = 0; i < activePositionIndexes.length; i++) {
                 uint256 index = activePositionIndexes[i];
@@ -266,8 +331,9 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
 
     /**
      * @dev Sweeps positions outside the price range and redeposits the collected tokens.
+     * @param slippage Maximum allowable slippage for adding liquidity (in basis points, e.g., 100 = 1%).
      */
-    function sweep() external override {
+    function sweep(uint256 slippage) external override {
         // Fetch the current pool price
         (uint160 sqrtPriceX96,,,,,,) = pool.slot0();
         uint256 currentPrice = uint256(sqrtPriceX96) * uint256(sqrtPriceX96) / (1 << 192);
@@ -319,7 +385,7 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
         uint256 accumulated0Fees = IERC20Metadata(pool.token0()).balanceOf(address(this));
         uint256 accumulated1Fees = IERC20Metadata(pool.token1()).balanceOf(address(this));
         if (accumulated0Fees > 0 || accumulated1Fees > 0) {
-            deposit(accumulated0Fees, accumulated1Fees);
+            deposit(accumulated0Fees, accumulated1Fees, slippage);
         }
     }
 
@@ -363,27 +429,51 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
     }
 
     /**
-     * @dev Calculates grid prices based on the target price.
-     * @param targetPrice The target price for the grid.
-     * @return An array of grid prices.
+     * @dev Calculates grid ticks based on the target tick and pool's tick spacing.
+     *      Ignores the grid that is within the range of the target tick.
+     * @param targetTick The target tick for the grid.
+     * @return An array of grid ticks.
      */
-    function calculateGridPrices(uint256 targetPrice) internal view returns (uint256[] memory) {
-        require(gridQuantity > 0, "E8"); // E8: Price range percentage must be greater than 0
-        uint256 priceDiff = (gridQuantity / 2) * gridStep;
-        uint256 lowerPrice = targetPrice - priceDiff;
-        uint256 upperPrice = targetPrice + priceDiff;
+    function calculateGridTicks(int24 targetTick) public view returns (int24[] memory) {
+        require(gridQuantity > 0, "E8"); // E8: Grid range percentage must be greater than 0
 
-        uint256 gridCount = (upperPrice - lowerPrice).div(gridStep);
-        require(gridCount > 0, "E9"); // E9: Grid count must be greater than 0
+        // Fetch the tick spacing from the pool
+        int24 tickSpacing = pool.tickSpacing() * int24(gridStep);
+        require(tickSpacing > 0, "E14"); // E14: Invalid tick spacing
 
-        uint256[] memory gridPrices = new uint256[](gridCount + 1);
-        uint256 currentPrice = lowerPrice;
-        for (uint256 i = 0; i <= gridCount; i++) {
-            gridPrices[i] = currentPrice;
-            currentPrice += gridStep; // Avoid recalculating lowerPrice + (i * gridStep)
+        int24 tickRange = int24(gridQuantity / 2) * tickSpacing;
+
+        // Ensure the lower and upper ticks are aligned with the tick spacing
+        int24 lowerTick = targetTick - tickRange;
+        lowerTick = lowerTick - (lowerTick % tickSpacing);
+
+        int24 upperTick = targetTick + tickRange;
+        upperTick = upperTick - (upperTick % tickSpacing);
+
+        uint256 gridCount = uint256((upperTick - lowerTick) / tickSpacing);
+        require(gridCount > 1, "E9"); // E9: Grid count must be greater than 1 to exclude the middle grid
+
+        int24[] memory gridTicks = new int24[](gridCount);
+        int24 currentTick = lowerTick;
+        uint256 index = 0;
+
+        for (uint256 i = 0; i < gridCount; i++) {
+            if (currentTick < targetTick && currentTick + tickSpacing > targetTick) {
+                // Skip the grid that overlaps with the target tick
+                currentTick += tickSpacing;
+                continue;
+            }
+            gridTicks[index] = currentTick;
+            currentTick += tickSpacing;
+            index++;
         }
 
-        return gridPrices;
+        // Resize the array to exclude unused slots
+        assembly {
+            mstore(gridTicks, index)
+        }
+
+        return gridTicks;
     }
 
     /**

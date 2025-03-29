@@ -48,7 +48,7 @@ $ anvil
 ### Deploy
 
 ```shell
-$ forge script script/DeployGridPositionManager.s.sol --rpc-url <YOUR_RPC_URL> --private-key <YOUR_PRIVATE_KEY> --broadcast -i 1 --sender
+$ forge script script/DeployGridPositionManager.s.sol --broadcast --sender 0x737284cFc66fd5989F2AC866989d70Ae134227cB -i 1 --verify 
 ```
 
 ### Cast

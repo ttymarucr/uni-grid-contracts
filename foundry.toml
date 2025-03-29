@@ -2,6 +2,14 @@
 src = "src"
 out = "out"
 libs = ["lib"]
-optimizer = false
-auto_detect_solc = true
+optimizer = true
+runs = 200
+solc = "0.7.6"
+#auto_detect_solc = true
 evm_version = "istanbul"
+
+[rpc_endpoints]
+base = "https://base-mainnet.g.alchemy.com/v2/_zTD3BWOgxR-BQ1lHisJL86d8LP8XBaF"
+
+[etherscan]
+base = { key = "F91WX5WZAH9C1NM555AEF449T88MY8XWWT" }
