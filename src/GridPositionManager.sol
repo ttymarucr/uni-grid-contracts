@@ -30,6 +30,9 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
 
     uint256[] public activePositionIndexes; // List of indexes for active positions with liquidity
 
+    uint256 public token0MinFees; // Minimum fees for token0
+    uint256 public token1MinFees; // Minimum fees for token1
+
     /**
      * @dev Modifier to restrict access to the contract owner or the contract itself.
      */
@@ -55,6 +58,8 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
         positionManager = INonfungiblePositionManager(_positionManager);
         gridQuantity = _gridQuantity;
         gridStep = _gridStep;
+        token0MinFees = 0;
+        token1MinFees = 0;
 
         // Approve max token amounts for token0 and token1
         TransferHelper.safeApprove(IUniswapV3Pool(_pool).token0(), _positionManager, type(uint256).max);
@@ -74,6 +79,7 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
         selfOrOwner
     {
         require(token0Amount > 0 && token1Amount > 0, "E5"); // E5: Token0 and Token1 amount must be greater than 0
+        require(slippage <= 10000, "E11"); // E11: Slippage must be less than or equal to 10000 (100%)
 
         // Fetch the current pool tick
         (, int24 currentTick,,,,,) = pool.slot0();
@@ -253,7 +259,7 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
                 );
 
                 // Remove the position from the active positions list
-                removeActivePosition(index);
+                removeActivePosition(i);
             }
         }
         uint256 accumulated0Fees = IERC20Metadata(pool.token0()).balanceOf(address(this));
@@ -293,7 +299,7 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
         }
 
         // Check if there are any fees to compound
-        if (accumulated0Fees > 0 || accumulated1Fees > 0) {
+        if (accumulated0Fees > token0MinFees || accumulated1Fees > token1MinFees) {
             for (uint256 i = 0; i < activePositionIndexes.length; i++) {
                 uint256 index = activePositionIndexes[i];
                 uint256 tokenId = positions[index].tokenId;
@@ -334,26 +340,22 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
      * @param slippage Maximum allowable slippage for adding liquidity (in basis points, e.g., 100 = 1%).
      */
     function sweep(uint256 slippage) external override {
-        // Fetch the current pool price
-        (uint160 sqrtPriceX96,,,,,,) = pool.slot0();
-        uint256 currentPrice = uint256(sqrtPriceX96) * uint256(sqrtPriceX96) / (1 << 192);
+        require(slippage <= 10000, "E11"); // E11: Slippage must be less than or equal to 10000 (100%)
+        // Fetch the current pool tick
+        (, int24 currentTick,,,,,) = pool.slot0();
 
-        uint256 priceDiff = (gridQuantity / 2) * gridStep;
-        uint256 lowerBound = currentPrice - priceDiff;
-        uint256 upperBound = currentPrice + priceDiff;
-
+        int24 tickRange = int24(gridQuantity / 2) * int24(gridStep);
+        int24 lowerBound = currentTick - tickRange;
+        int24 upperBound = currentTick + tickRange;
         for (uint256 i = 0; i < activePositionIndexes.length; i++) {
             uint256 index = activePositionIndexes[i];
             uint256 tokenId = positions[index].tokenId;
+            int24 tickLower = positions[index].tickLower;
+            int24 tickUpper = positions[index].tickUpper;
             uint128 liquidity = positions[index].liquidity;
 
-            // Check if the position is outside the price range
-            uint256 positionLowerPrice =
-                uint256(TickMath.getSqrtRatioAtTick(positions[index].tickLower)) ** 2 / (1 << 192);
-            uint256 positionUpperPrice =
-                uint256(TickMath.getSqrtRatioAtTick(positions[index].tickUpper)) ** 2 / (1 << 192);
-
-            if (positionUpperPrice < lowerBound || positionLowerPrice > upperBound) {
+            // Check if the position is outside the tick range
+            if (tickUpper < lowerBound || tickLower > upperBound) {
                 // Remove liquidity from the position
                 positionManager.decreaseLiquidity(
                     INonfungiblePositionManager.DecreaseLiquidityParams({
@@ -376,15 +378,16 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
                 );
 
                 // Remove the position from the active positions list
-                removeActivePosition(index);
+                removeActivePosition(i);
 
                 // Update the position's liquidity to 0
                 positions[index].liquidity = 0;
             }
         }
+
         uint256 accumulated0Fees = IERC20Metadata(pool.token0()).balanceOf(address(this));
         uint256 accumulated1Fees = IERC20Metadata(pool.token1()).balanceOf(address(this));
-        if (accumulated0Fees > 0 || accumulated1Fees > 0) {
+        if (accumulated0Fees > token0MinFees || accumulated1Fees > token1MinFees) {
             deposit(accumulated0Fees, accumulated1Fees, slippage);
         }
     }
@@ -413,6 +416,17 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
     }
 
     /**
+     * @dev Updates the minimum fees for token0 and token1.
+     *      Only callable by the contract owner.
+     * @param _token0MinFees New minimum fees for token0.
+     * @param _token1MinFees New minimum fees for token1.
+     */
+    function updateMinFees(uint256 _token0MinFees, uint256 _token1MinFees) external override onlyOwner {
+        token0MinFees = _token0MinFees;
+        token1MinFees = _token1MinFees;
+    }
+
+    /**
      * @dev Returns the total number of positions.
      * @return The length of the positions array.
      */
@@ -434,7 +448,7 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
      * @param targetTick The target tick for the grid.
      * @return An array of grid ticks.
      */
-    function calculateGridTicks(int24 targetTick) public view returns (int24[] memory) {
+    function calculateGridTicks(int24 targetTick) internal view returns (int24[] memory) {
         require(gridQuantity > 0, "E8"); // E8: Grid range percentage must be greater than 0
 
         // Fetch the tick spacing from the pool

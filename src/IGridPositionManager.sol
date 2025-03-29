@@ -90,6 +90,14 @@ interface IGridPositionManager {
     function updategridQuantity(uint256 _newgridQuantity) external;
 
     /**
+     * @dev Updates the minimum fees for token0 and token1.
+     *      Only callable by the contract owner.
+     * @param _token0MinFees New minimum fees for token0.
+     * @param _token1MinFees New minimum fees for token1.
+     */
+    function updateMinFees(uint256 _token0MinFees, uint256 _token1MinFees) external;
+
+    /**
      * @dev Returns the total number of positions.
      * @return The length of the positions array.
      */
