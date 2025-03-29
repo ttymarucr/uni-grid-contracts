@@ -92,10 +92,20 @@ describe("GridPositionManager", function () {
     );
   });
 
+  it("Should revert if grid step is invalid", async function () {
+    await expect(gridPositionManager.connect(owner).setGridStep(0)).to.be.revertedWith("E09: Grid step must be between 1 and 9999");
+    await expect(gridPositionManager.connect(owner).setGridStep(10000)).to.be.revertedWith("E09: Grid step must be between 1 and 9999");
+  });
+
   it("Should allow the owner to set grid quantity", async function () {
     await gridPositionManager.connect(owner).setGridQuantity(20);
     const gridQuantity = await gridPositionManager.getGridQuantity();
     expect(gridQuantity).to.equal(20);
+  });
+
+  it("Should revert if grid quantity is invalid", async function () {
+    await expect(gridPositionManager.connect(owner).setGridQuantity(0)).to.be.revertedWith("E10: Grid quantity must be between 1 and 9999");
+    await expect(gridPositionManager.connect(owner).setGridQuantity(10000)).to.be.revertedWith("E10: Grid quantity must be between 1 and 9999");
   });
 
   it("Should allow the owner to set minimum fees", async function () {
@@ -109,6 +119,15 @@ describe("GridPositionManager", function () {
   it("Should allow deposits and emit Deposit event", async function () {
     await expect(gridPositionManager.connect(owner).deposit(amount0, amount1, slippage))
       .to.emit(gridPositionManager, "Deposit");
+  });
+
+  it("Should revert if deposit amounts are invalid", async function () {
+    await expect(gridPositionManager.connect(owner).deposit(0, amount1, slippage)).to.be.revertedWith("E05: Token amounts must be greater than 0");
+    await expect(gridPositionManager.connect(owner).deposit(amount0, 0, slippage)).to.be.revertedWith("E05: Token amounts must be greater than 0");
+  });
+
+  it("Should revert if slippage is too high", async function () {
+    await expect(gridPositionManager.connect(owner).deposit(amount0, amount1, 600)).to.be.revertedWith("E06: Slippage must be less than or equal to 500 (5%)");
   });
 
   it("Should allow the owner to withdraw and emit Withdraw event", async function () {
@@ -165,7 +184,7 @@ describe("GridPositionManager", function () {
     await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage);
 
     // Attempt to call close while active positions exist
-    await expect(gridPositionManager.connect(owner).close()).to.be.rejectedWith("E15");
+    await expect(gridPositionManager.connect(owner).close()).to.be.revertedWith("E12: Active positions must be zero");
   });
 
   it("Should allow the owner to perform an emergency withdraw", async function () {
@@ -191,8 +210,21 @@ describe("GridPositionManager", function () {
     await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage);
 
     // Attempt to call emergencyWithdraw as a non-owner
-    await expect(gridPositionManager.connect(addr1).emergencyWithdraw()).to.be.rejectedWith(
+    await expect(gridPositionManager.connect(addr1).emergencyWithdraw()).to.be.revertedWith(
       "Ownable: caller is not the owner"
     );
+  });
+
+  it("Should revert if active positions exist when closing", async function () {
+    await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage);
+    await expect(gridPositionManager.connect(owner).close()).to.be.revertedWith("E12: Active positions must be zero");
+  });
+
+  it("Should revert if no Ether to recover", async function () {
+    await expect(gridPositionManager.connect(owner).recoverEther()).to.be.revertedWith("E13: No Ether to recover");
+  });
+
+  it("Should revert if position index is out of bounds", async function () {
+    await expect(gridPositionManager.getPosition(999)).to.be.revertedWith("E15: Index out of bounds");
   });
 });
