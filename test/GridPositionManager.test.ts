@@ -80,16 +80,30 @@ describe("GridPositionManager", function () {
     expect(gridStep).to.equal(1);
   });
 
-  it("Should allow the owner to update grid step", async function () {
-    await gridPositionManager.connect(owner).updateGridStep(5);
+  it("Should allow the owner to set grid step", async function () {
+    await gridPositionManager.connect(owner).setGridStep(5);
     const gridStep = await gridPositionManager.getGridStep();
     expect(gridStep).to.equal(5);
   });
 
-  it("Should revert if non-owner tries to update grid step", async function () {
-    await expect(gridPositionManager.connect(addr1).updateGridStep(5)).to.be.rejectedWith(
+  it("Should revert if non-owner tries to set grid step", async function () {
+    await expect(gridPositionManager.connect(addr1).setGridStep(5)).to.be.rejectedWith(
       "Ownable: caller is not the owner"
     );
+  });
+
+  it("Should allow the owner to set grid quantity", async function () {
+    await gridPositionManager.connect(owner).setGridQuantity(20);
+    const gridQuantity = await gridPositionManager.getGridQuantity();
+    expect(gridQuantity).to.equal(20);
+  });
+
+  it("Should allow the owner to set minimum fees", async function () {
+    await gridPositionManager.connect(owner).setMinFees(ethers.utils.parseEther("0.0001"), ethers.utils.parseUnits("0.0001", 6));
+    const token0MinFees = await gridPositionManager.token0MinFees();
+    const token1MinFees = await gridPositionManager.token1MinFees();
+    expect(token0MinFees).to.equal(ethers.utils.parseEther("0.0001"));
+    expect(token1MinFees).to.equal(ethers.utils.parseUnits("0.0001", 6));
   });
 
   it("Should allow deposits and emit Deposit event", async function () {
@@ -117,6 +131,7 @@ describe("GridPositionManager", function () {
   });
 
   it("Should allow sweeping positions", async function () {
+    await gridPositionManager.connect(owner).setMinFees(ethers.utils.parseEther("0.0001"), ethers.utils.parseUnits("1", 6));
     await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage);
     await expect(gridPositionManager.sweep(slippage)).to.not.be.rejected;
   });
@@ -128,5 +143,57 @@ describe("GridPositionManager", function () {
         value: ethers.utils.parseEther("1"),
       })
     ).to.be.rejectedWith("Ether transfers not allowed");
+  });
+
+  it("Should allow the owner to close all positions", async function () {
+    // Deposit funds to create positions
+    await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage);
+
+    // Withdraw all liquidity to ensure activePositionIndexes is empty
+    await gridPositionManager.connect(owner).withdraw();
+
+    // Call the close function
+    await expect(gridPositionManager.connect(owner).close())
+      .to.not.be.rejected;
+
+    // Verify that positions array is cleared
+    const positionsLength = await gridPositionManager.getPositionsLength();
+    expect(positionsLength).to.equal(0);
+  });
+
+  it("Should revert close if active positions exist", async function () {
+    // Deposit funds to create positions
+    await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage);
+
+    // Attempt to call close while active positions exist
+    await expect(gridPositionManager.connect(owner).close()).to.be.rejectedWith("E15");
+  });
+
+  it("Should allow the owner to perform an emergency withdraw", async function () {
+    // Deposit funds to create positions
+    await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage);
+
+    // Call the emergencyWithdraw function
+    await expect(gridPositionManager.connect(owner).emergencyWithdraw())
+      .to.emit(gridPositionManager, "EmergencyWithdraw");
+
+    // Verify that token0 and token1 balances are transferred to the owner
+    const token0Balance = await ethers.provider.getBalance(gridPositionManager.address);
+    const token1Balance = await ethers.provider.getBalance(gridPositionManager.address);
+    expect(token0Balance).to.equal(0);
+    expect(token1Balance).to.equal(0);
+    // Verify that active positions are cleared
+    const activePositions = await gridPositionManager.getActivePositionIndexes();
+    expect(activePositions.length).to.equal(0);
+  });
+
+  it("Should revert if non-owner tries to perform an emergency withdraw", async function () {
+    // Deposit funds to create positions
+    await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage);
+
+    // Attempt to call emergencyWithdraw as a non-owner
+    await expect(gridPositionManager.connect(addr1).emergencyWithdraw()).to.be.rejectedWith(
+      "Ownable: caller is not the owner"
+    );
   });
 });

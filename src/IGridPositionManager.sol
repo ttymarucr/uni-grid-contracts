@@ -76,26 +76,33 @@ interface IGridPositionManager {
     function sweep(uint256 slippage) external;
 
     /**
-     * @dev Updates the grid step size.
+     * @dev Closes all positions by burning them. Can only be called if activePositionIndexes.length is zero.
+     *      Assumes all positions in the positions array have zero liquidity.
+     *      Only callable by the contract owner.
+     */
+    function close() external;
+
+    /**
+     * @dev Sets the grid step size.
      *      Only callable by the contract owner.
      * @param _newGridStep New grid step size.
      */
-    function updateGridStep(uint256 _newGridStep) external;
+    function setGridStep(uint256 _newGridStep) external;
 
     /**
-     * @dev Updates the grid quantity.
+     * @dev Sets the grid quantity.
      *      Only callable by the contract owner.
-     * @param _newgridQuantity New grid quantity.
+     * @param _newGridQuantity New grid quantity.
      */
-    function updategridQuantity(uint256 _newgridQuantity) external;
+    function setGridQuantity(uint256 _newGridQuantity) external;
 
     /**
-     * @dev Updates the minimum fees for token0 and token1.
+     * @dev Sets the minimum fees for token0 and token1.
      *      Only callable by the contract owner.
      * @param _token0MinFees New minimum fees for token0.
      * @param _token1MinFees New minimum fees for token1.
      */
-    function updateMinFees(uint256 _token0MinFees, uint256 _token1MinFees) external;
+    function setMinFees(uint256 _token0MinFees, uint256 _token1MinFees) external;
 
     /**
      * @dev Returns the total number of positions.

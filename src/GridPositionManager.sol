@@ -232,35 +232,34 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
      *      Only callable by the contract owner.
      */
     function withdraw() external override onlyOwner nonReentrant {
-        for (uint256 i = 0; i < activePositionIndexes.length; i++) {
+        while (activePositionIndexes.length > 0) {
+            uint256 i = activePositionIndexes.length - 1;
             uint256 index = activePositionIndexes[i];
             uint256 tokenId = positions[index].tokenId;
             uint128 liquidity = positions[index].liquidity;
+            positionManager.decreaseLiquidity(
+                INonfungiblePositionManager.DecreaseLiquidityParams({
+                    tokenId: tokenId,
+                    liquidity: liquidity,
+                    amount0Min: 0,
+                    amount1Min: 0,
+                    deadline: block.timestamp + 1 hours
+                })
+            );
 
-            // Collect fees and remove liquidity
-            if (liquidity > 0) {
-                positionManager.decreaseLiquidity(
-                    INonfungiblePositionManager.DecreaseLiquidityParams({
-                        tokenId: tokenId,
-                        liquidity: liquidity,
-                        amount0Min: 0,
-                        amount1Min: 0,
-                        deadline: block.timestamp + 1 hours
-                    })
-                );
+            positionManager.collect(
+                INonfungiblePositionManager.CollectParams({
+                    tokenId: tokenId,
+                    recipient: address(this),
+                    amount0Max: type(uint128).max,
+                    amount1Max: type(uint128).max
+                })
+            );
 
-                positionManager.collect(
-                    INonfungiblePositionManager.CollectParams({
-                        tokenId: tokenId,
-                        recipient: address(this),
-                        amount0Max: type(uint128).max,
-                        amount1Max: type(uint128).max
-                    })
-                );
-
-                // Remove the position from the active positions list
-                removeActivePosition(i);
-            }
+            // Remove the position from the active positions list
+            removeActivePosition(i);
+            // Update the position's liquidity to 0
+            positions[index].liquidity = 0;
         }
         uint256 accumulated0Fees = IERC20Metadata(pool.token0()).balanceOf(address(this));
         uint256 accumulated1Fees = IERC20Metadata(pool.token1()).balanceOf(address(this));
@@ -282,7 +281,8 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
 
         uint256 accumulated0Fees = IERC20Metadata(pool.token0()).balanceOf(address(this));
         uint256 accumulated1Fees = IERC20Metadata(pool.token1()).balanceOf(address(this));
-        for (uint256 i = 0; i < activePositionIndexes.length; i++) {
+        uint256 activePositions = activePositionIndexes.length;
+        for (uint256 i = 0; i < activePositions; i++) {
             uint256 index = activePositionIndexes[i];
             uint256 tokenId = positions[index].tokenId;
             // Collect fees
@@ -300,7 +300,7 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
 
         // Check if there are any fees to compound
         if (accumulated0Fees > token0MinFees || accumulated1Fees > token1MinFees) {
-            for (uint256 i = 0; i < activePositionIndexes.length; i++) {
+            for (uint256 i = 0; i < activePositions; i++) {
                 uint256 index = activePositionIndexes[i];
                 uint256 tokenId = positions[index].tokenId;
 
@@ -379,6 +379,7 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
 
                 // Remove the position from the active positions list
                 removeActivePosition(i);
+                i--;
 
                 // Update the position's liquidity to 0
                 positions[index].liquidity = 0;
@@ -393,35 +394,35 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
     }
 
     /**
-     * @dev Updates the grid step size.
+     * @dev Sets the grid step size.
      *      Only callable by the contract owner.
      * @param _newGridStep New grid step size.
      */
-    function updateGridStep(uint256 _newGridStep) external override onlyOwner {
+    function setGridStep(uint256 _newGridStep) external override onlyOwner {
         require(_newGridStep > 0 && _newGridStep < 10000, "E6"); // E6: Grid step must be greater than 0 and less than 10000
         gridStep = _newGridStep;
     }
 
     /**
-     * @dev Updates the grid quantity.
+     * @dev Sets the grid quantity.
      *      Only callable by the contract owner.
-     * @param _newgridQuantity New grid quantity.
+     * @param _newGridQuantity New grid quantity.
      */
-    function updategridQuantity(uint256 _newgridQuantity) external override onlyOwner {
+    function setGridQuantity(uint256 _newGridQuantity) external override onlyOwner {
         require(
-            _newgridQuantity > 0 && _newgridQuantity < 10000,
+            _newGridQuantity > 0 && _newGridQuantity < 10000,
             "E7" // E7: Price range percentage must be greater than 0 and less than 10000
         );
-        gridQuantity = _newgridQuantity;
+        gridQuantity = _newGridQuantity;
     }
 
     /**
-     * @dev Updates the minimum fees for token0 and token1.
+     * @dev Sets the minimum fees for token0 and token1.
      *      Only callable by the contract owner.
      * @param _token0MinFees New minimum fees for token0.
      * @param _token1MinFees New minimum fees for token1.
      */
-    function updateMinFees(uint256 _token0MinFees, uint256 _token1MinFees) external override onlyOwner {
+    function setMinFees(uint256 _token0MinFees, uint256 _token1MinFees) external override onlyOwner {
         token0MinFees = _token0MinFees;
         token1MinFees = _token1MinFees;
     }
@@ -569,6 +570,29 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
      *      Only callable by the contract owner.
      */
     function emergencyWithdraw() external onlyOwner {
+        // Iterate over active positions and transfer tokens to the sender
+        while (activePositionIndexes.length > 0) {
+            uint256 i = activePositionIndexes.length - 1;
+            uint256 index = activePositionIndexes[i];
+            uint256 tokenId = positions[index].tokenId;
+
+            // Collect fees and tokens
+            positionManager.collect(
+                INonfungiblePositionManager.CollectParams({
+                    tokenId: tokenId,
+                    recipient: address(this),
+                    amount0Max: type(uint128).max,
+                    amount1Max: type(uint128).max
+                })
+            );
+
+            // Remove the position from the active positions list
+            removeActivePosition(i);
+
+            // Update the position's liquidity to 0
+            positions[index].liquidity = 0;
+        }
+
         // Withdraw all token0 funds
         uint256 token0Balance = IERC20Metadata(pool.token0()).balanceOf(address(this));
         if (token0Balance > 0) {
@@ -583,6 +607,25 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
 
         // Emit an event for transparency
         emit EmergencyWithdraw(msg.sender, token0Balance, token1Balance);
+    }
+
+    /**
+     * @dev Closes all positions by burning them. Can only be called if activePositionIndexes.length is zero.
+     *      Assumes all positions in the positions array have zero liquidity.
+     *      Only callable by the contract owner.
+     */
+    function close() external override onlyOwner nonReentrant {
+        require(activePositionIndexes.length == 0, "E15"); // E15: Active positions must be zero
+
+        for (uint256 i = 0; i < positions.length; i++) {
+            uint256 tokenId = positions[i].tokenId;
+
+            // Burn the position
+            positionManager.burn(tokenId);
+        }
+
+        // Clear the positions array
+        delete positions;
     }
 
     /**
