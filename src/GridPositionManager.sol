@@ -88,17 +88,7 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
         TransferHelper.safeTransferFrom(pool.token0(), msg.sender, address(this), token0Amount);
         TransferHelper.safeTransferFrom(pool.token1(), msg.sender, address(this), token1Amount);
 
-        int24[] memory gridTicks = calculateGridTicks(currentTick);
-        require(gridTicks.length > 2, "Invalid grid ticks");
-
-        uint256 gridLength = gridTicks.length - 1;
-        uint256 halfGridLength = gridLength.div(2);
-
-        for (uint256 i = 0; i < gridLength; i++) {
-            // Extracted logic for calculating desired amounts and handling positions
-            handlePosition(gridTicks[i], gridTicks[i + 1], currentTick, halfGridLength - (i % halfGridLength), slippage);
-        }
-        emit Deposit(msg.sender, token0Amount, token1Amount);
+        _deposit(currentTick, slippage);
     }
 
     /**
@@ -109,7 +99,7 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
      * @param halfGridLength Half the length of the grid.
      * @param slippage Maximum allowable slippage for adding liquidity (in basis points).
      */
-    function handlePosition(
+    function _handlePosition(
         int24 tickLower,
         int24 tickUpper,
         int24 currentTick,
@@ -134,97 +124,16 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
         uint256 amount1Slippage = amount1Desired.mul(uint256(10000).sub(slippage)).div(10000);
 
         // Check if the position already exists
-        (uint256 existingTokenId, uint256 index) = getPositionFromTicks(tickLower, tickUpper);
+        (uint256 existingTokenId, uint256 index) = _getPositionFromTicks(tickLower, tickUpper);
         if (existingTokenId > 0) {
-            addLiquidityToExistingPosition(
+            _addLiquidityToExistingPosition(
                 existingTokenId, index, amount0Desired, amount1Desired, amount0Slippage, amount1Slippage
             );
             return;
         }
 
         // Mint a new position
-        mintNewPosition(tickLower, tickUpper, amount0Desired, amount1Desired, amount0Slippage, amount1Slippage);
-    }
-
-    /**
-     * @dev Adds liquidity to an existing position.
-     * @param tokenId The token ID of the existing position.
-     * @param index The index of the position in the positions array.
-     * @param amount0Desired Desired amount of token0.
-     * @param amount1Desired Desired amount of token1.
-     * @param amount0Min Minimum amount of token0 (after slippage).
-     * @param amount1Min Minimum amount of token1 (after slippage).
-     */
-    function addLiquidityToExistingPosition(
-        uint256 tokenId,
-        uint256 index,
-        uint256 amount0Desired,
-        uint256 amount1Desired,
-        uint256 amount0Min,
-        uint256 amount1Min
-    ) internal {
-        (uint128 newLiquidity,,) = positionManager.increaseLiquidity(
-            INonfungiblePositionManager.IncreaseLiquidityParams({
-                tokenId: tokenId,
-                amount0Desired: amount0Desired,
-                amount1Desired: amount1Desired,
-                amount0Min: amount0Min,
-                amount1Min: amount1Min,
-                deadline: block.timestamp + 1 hours
-            })
-        );
-        positions[index].liquidity = newLiquidity;
-        if (!isActivePosition(index)) {
-            activePositionIndexes.push(index);
-        }
-    }
-
-    /**
-     * @dev Mints a new position.
-     * @param tickLower The lower tick of the grid.
-     * @param tickUpper The upper tick of the grid.
-     * @param amount0Desired Desired amount of token0.
-     * @param amount1Desired Desired amount of token1.
-     * @param amount0Min Minimum amount of token0 (after slippage).
-     * @param amount1Min Minimum amount of token1 (after slippage).
-     */
-    function mintNewPosition(
-        int24 tickLower,
-        int24 tickUpper,
-        uint256 amount0Desired,
-        uint256 amount1Desired,
-        uint256 amount0Min,
-        uint256 amount1Min
-    ) internal {
-        (uint256 tokenId, uint128 liquidity,,) = positionManager.mint(
-            INonfungiblePositionManager.MintParams({
-                token0: pool.token0(),
-                token1: pool.token1(),
-                fee: pool.fee(),
-                tickLower: tickLower,
-                tickUpper: tickUpper,
-                amount0Desired: amount0Desired,
-                amount1Desired: amount1Desired,
-                amount0Min: amount0Min,
-                amount1Min: amount1Min,
-                recipient: address(this),
-                deadline: block.timestamp + 1 hours
-            })
-        );
-
-        // Store the position in the array
-        positions.push(
-            Position({
-                tokenId: tokenId,
-                tickLower: tickLower,
-                tickUpper: tickUpper,
-                liquidity: liquidity,
-                index: positions.length
-            })
-        );
-
-        // Add the new position to the active positions list
-        activePositionIndexes.push(positions.length - 1); // Use positions.length - 1 directly
+        _mintNewPosition(tickLower, tickUpper, amount0Desired, amount1Desired, amount0Slippage, amount1Slippage);
     }
 
     /**
@@ -257,7 +166,7 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
             );
 
             // Remove the position from the active positions list
-            removeActivePosition(i);
+            _removeActivePosition(i);
             // Update the position's liquidity to 0
             positions[index].liquidity = 0;
         }
@@ -273,7 +182,7 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
     }
 
     /**
-     * @dev Compounds collected fees into liquidity for active positions.
+     * @dev Compounds collected fees into liquidity for the closest active position.
      * @param slippage Maximum allowable slippage for adding liquidity (in basis points, e.g., 100 = 1%).
      */
     function compound(uint256 slippage) external override nonReentrant {
@@ -305,35 +214,8 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
 
         // Check if there are any fees to compound
         if (accumulated0Fees > token0MinFees || accumulated1Fees > token1MinFees) {
-            for (uint256 i = 0; i < activePositions; i++) {
-                uint256 index = activePositionIndexes[i];
-                uint256 tokenId = positions[index].tokenId;
-
-                // Check if the position is within the current tick range
-                if (
-                    currentTick >= positions[index].tickLower &&
-                    currentTick <= positions[index].tickUpper
-                ) {
-                    // Calculate slippage-adjusted amounts
-                    uint256 amount0Slippage = accumulated0Fees.mul(uint256(10000).sub(slippage)).div(10000);
-                    uint256 amount1Slippage = accumulated1Fees.mul(uint256(10000).sub(slippage)).div(10000);
-
-                    // Add collected fees to the existing position
-                    (uint128 newLiquidity, uint256 amount0, uint256 amount1) = positionManager.increaseLiquidity(
-                        INonfungiblePositionManager.IncreaseLiquidityParams({
-                            tokenId: tokenId,
-                            amount0Desired: accumulated0Fees,
-                            amount1Desired: accumulated1Fees,
-                            amount0Min: amount0Slippage,
-                            amount1Min: amount1Slippage,
-                            deadline: block.timestamp + 1 hours
-                        })
-                    );
-                    positions[index].liquidity = newLiquidity;
-                    emit Compound(msg.sender, amount0, amount1);
-                    break;
-                }
-            }
+            _deposit(currentTick, slippage);
+            emit Compound(msg.sender, accumulated0Fees, accumulated1Fees);
         }
     }
 
@@ -380,8 +262,8 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
                 );
 
                 // Remove the position from the active positions list
-                removeActivePosition(i);
-                i--;
+                _removeActivePosition(i);
+                i--; // Adjust index after removal
 
                 // Update the position's liquidity to 0
                 positions[index].liquidity = 0;
@@ -391,8 +273,71 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
         uint256 accumulated0Fees = IERC20Metadata(pool.token0()).balanceOf(address(this));
         uint256 accumulated1Fees = IERC20Metadata(pool.token1()).balanceOf(address(this));
         if (accumulated0Fees > token0MinFees || accumulated1Fees > token1MinFees) {
-            deposit(accumulated0Fees, accumulated1Fees, slippage);
+            _deposit(currentTick, slippage);
         }
+    }
+
+    /**
+     * @dev Emergency withdraw function to recover all funds in the contract.
+     *      Only callable by the contract owner.
+     */
+    function emergencyWithdraw() external onlyOwner {
+        // Iterate over active positions and transfer tokens to the sender
+        while (activePositionIndexes.length > 0) {
+            uint256 i = activePositionIndexes.length - 1;
+            uint256 index = activePositionIndexes[i];
+            uint256 tokenId = positions[index].tokenId;
+
+            // Collect fees and tokens
+            positionManager.collect(
+                INonfungiblePositionManager.CollectParams({
+                    tokenId: tokenId,
+                    recipient: address(this),
+                    amount0Max: type(uint128).max,
+                    amount1Max: type(uint128).max
+                })
+            );
+
+            // Remove the position from the active positions list
+            _removeActivePosition(i);
+
+            // Update the position's liquidity to 0
+            positions[index].liquidity = 0;
+        }
+
+        // Withdraw all token0 funds
+        uint256 token0Balance = IERC20Metadata(pool.token0()).balanceOf(address(this));
+        if (token0Balance > 0) {
+            TransferHelper.safeTransfer(pool.token0(), msg.sender, token0Balance);
+        }
+
+        // Withdraw all token1 funds
+        uint256 token1Balance = IERC20Metadata(pool.token1()).balanceOf(address(this));
+        if (token1Balance > 0) {
+            TransferHelper.safeTransfer(pool.token1(), msg.sender, token1Balance);
+        }
+
+        // Emit an event for transparency
+        emit EmergencyWithdraw(msg.sender, token0Balance, token1Balance);
+    }
+
+    /**
+     * @dev Closes all positions by burning them. Can only be called if activePositionIndexes.length is zero.
+     *      Assumes all positions in the positions array have zero liquidity.
+     *      Only callable by the contract owner.
+     */
+    function close() external override onlyOwner nonReentrant {
+        require(activePositionIndexes.length == 0, "E15"); // E15: Active positions must be zero
+
+        for (uint256 i = 0; i < positions.length; i++) {
+            uint256 tokenId = positions[i].tokenId;
+
+            // Burn the position
+            positionManager.burn(tokenId);
+        }
+
+        // Clear the positions array
+        delete positions;
     }
 
     /**
@@ -445,13 +390,110 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
         return activePositionIndexes;
     }
 
+    
+    function _deposit(int24 currentTick, uint256 slippage) internal {
+        int24[] memory gridTicks = _calculateGridTicks(currentTick);
+        require(gridTicks.length > 2, "Invalid grid ticks");
+
+        uint256 gridLength = gridTicks.length - 1;
+        uint256 halfGridLength = gridLength.div(2);
+
+        for (uint256 i = 0; i < gridLength; i++) {
+            // Extracted logic for calculating desired amounts and handling positions
+            _handlePosition(gridTicks[i], gridTicks[i + 1], currentTick, halfGridLength - (i % halfGridLength), slippage);
+        }
+    }
+
+    /**
+     * @dev Adds liquidity to an existing position.
+     * @param tokenId The token ID of the existing position.
+     * @param index The index of the position in the positions array.
+     * @param amount0Desired Desired amount of token0.
+     * @param amount1Desired Desired amount of token1.
+     * @param amount0Min Minimum amount of token0 (after slippage).
+     * @param amount1Min Minimum amount of token1 (after slippage).
+     */
+    function _addLiquidityToExistingPosition(
+        uint256 tokenId,
+        uint256 index,
+        uint256 amount0Desired,
+        uint256 amount1Desired,
+        uint256 amount0Min,
+        uint256 amount1Min
+    ) internal {
+        (uint128 newLiquidity, uint256 amount0, uint256 amount1) = positionManager.increaseLiquidity(
+            INonfungiblePositionManager.IncreaseLiquidityParams({
+                tokenId: tokenId,
+                amount0Desired: amount0Desired,
+                amount1Desired: amount1Desired,
+                amount0Min: amount0Min,
+                amount1Min: amount1Min,
+                deadline: block.timestamp + 1 hours
+            })
+        );
+        positions[index].liquidity = newLiquidity;
+        if (!_isActivePosition(index)) {
+            activePositionIndexes.push(index);
+        }
+        emit Deposit(msg.sender, amount0, amount1);
+    }
+
+    /**
+     * @dev Mints a new position.
+     * @param tickLower The lower tick of the grid.
+     * @param tickUpper The upper tick of the grid.
+     * @param amount0Desired Desired amount of token0.
+     * @param amount1Desired Desired amount of token1.
+     * @param amount0Min Minimum amount of token0 (after slippage).
+     * @param amount1Min Minimum amount of token1 (after slippage).
+     */
+    function _mintNewPosition(
+        int24 tickLower,
+        int24 tickUpper,
+        uint256 amount0Desired,
+        uint256 amount1Desired,
+        uint256 amount0Min,
+        uint256 amount1Min
+    ) internal {
+        (uint256 tokenId, uint128 liquidity, uint256 amount0, uint256 amount1) = positionManager.mint(
+            INonfungiblePositionManager.MintParams({
+                token0: pool.token0(),
+                token1: pool.token1(),
+                fee: pool.fee(),
+                tickLower: tickLower,
+                tickUpper: tickUpper,
+                amount0Desired: amount0Desired,
+                amount1Desired: amount1Desired,
+                amount0Min: amount0Min,
+                amount1Min: amount1Min,
+                recipient: address(this),
+                deadline: block.timestamp + 1 hours
+            })
+        );
+
+        // Store the position in the array
+        positions.push(
+            Position({
+                tokenId: tokenId,
+                tickLower: tickLower,
+                tickUpper: tickUpper,
+                liquidity: liquidity,
+                index: positions.length
+            })
+        );
+
+        // Add the new position to the active positions list
+        activePositionIndexes.push(positions.length - 1); // Use positions.length - 1 directly
+        emit Deposit(msg.sender, amount0, amount1);
+    }
+
     /**
      * @dev Calculates grid ticks based on the target tick and pool's tick spacing.
      *      Ignores the grid that is within the range of the target tick.
      * @param targetTick The target tick for the grid.
      * @return An array of grid ticks.
      */
-    function calculateGridTicks(int24 targetTick) internal view returns (int24[] memory) {
+    function _calculateGridTicks(int24 targetTick) internal view returns (int24[] memory) {
         require(gridQuantity > 0, "E8"); // E8: Grid range percentage must be greater than 0
 
         // Fetch the tick spacing from the pool
@@ -499,30 +541,13 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
      * @param tickUpper The upper tick of the position.
      * @return The token ID and index of the position.
      */
-    function getPositionFromTicks(int24 tickLower, int24 tickUpper) internal view returns (uint256, uint256) {
+    function _getPositionFromTicks(int24 tickLower, int24 tickUpper) internal view returns (uint256, uint256) {
         for (uint256 i = 0; i < positions.length; i++) {
             if (positions[i].tickLower == tickLower && positions[i].tickUpper == tickUpper) {
                 return (positions[i].tokenId, i);
             }
         }
         return (0, 0);
-    }
-
-    /**
-     * @dev Converts a price to the closest tick.
-     * @param price The price to convert.
-     * @return The closest tick.
-     */
-    function getTickFromPrice(uint256 price) internal pure returns (int24) {
-        require(price > 0, "E10"); // E10: Price must be greater than 0
-
-        // Convert price to sqrtPriceX96 format
-        uint160 sqrtPriceX96 = uint160(sqrt(price) * (1 << 96) / 1e18);
-
-        // Use TickMath to get the closest tick
-        int24 tick = TickMath.getTickAtSqrtRatio(sqrtPriceX96);
-
-        return tick;
     }
 
     /**
@@ -544,7 +569,7 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
      * @dev Removes an active position by its index.
      * @param index The index of the position to remove.
      */
-    function removeActivePosition(uint256 index) internal {
+    function _removeActivePosition(uint256 index) internal {
         uint256 lastIndex = activePositionIndexes.length - 1;
         if (index != lastIndex) {
             activePositionIndexes[index] = activePositionIndexes[lastIndex];
@@ -557,7 +582,7 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
      * @param index The index of the position to check.
      * @return True if the position is active, false otherwise.
      */
-    function isActivePosition(uint256 index) internal view returns (bool) {
+    function _isActivePosition(uint256 index) internal view returns (bool) {
         uint256 length = activePositionIndexes.length;
         for (uint256 i = 0; i < length; i++) {
             if (activePositionIndexes[i] == index) {
@@ -565,69 +590,6 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
             }
         }
         return false;
-    }
-
-    /**
-     * @dev Emergency withdraw function to recover all funds in the contract.
-     *      Only callable by the contract owner.
-     */
-    function emergencyWithdraw() external onlyOwner {
-        // Iterate over active positions and transfer tokens to the sender
-        while (activePositionIndexes.length > 0) {
-            uint256 i = activePositionIndexes.length - 1;
-            uint256 index = activePositionIndexes[i];
-            uint256 tokenId = positions[index].tokenId;
-
-            // Collect fees and tokens
-            positionManager.collect(
-                INonfungiblePositionManager.CollectParams({
-                    tokenId: tokenId,
-                    recipient: address(this),
-                    amount0Max: type(uint128).max,
-                    amount1Max: type(uint128).max
-                })
-            );
-
-            // Remove the position from the active positions list
-            removeActivePosition(i);
-
-            // Update the position's liquidity to 0
-            positions[index].liquidity = 0;
-        }
-
-        // Withdraw all token0 funds
-        uint256 token0Balance = IERC20Metadata(pool.token0()).balanceOf(address(this));
-        if (token0Balance > 0) {
-            TransferHelper.safeTransfer(pool.token0(), msg.sender, token0Balance);
-        }
-
-        // Withdraw all token1 funds
-        uint256 token1Balance = IERC20Metadata(pool.token1()).balanceOf(address(this));
-        if (token1Balance > 0) {
-            TransferHelper.safeTransfer(pool.token1(), msg.sender, token1Balance);
-        }
-
-        // Emit an event for transparency
-        emit EmergencyWithdraw(msg.sender, token0Balance, token1Balance);
-    }
-
-    /**
-     * @dev Closes all positions by burning them. Can only be called if activePositionIndexes.length is zero.
-     *      Assumes all positions in the positions array have zero liquidity.
-     *      Only callable by the contract owner.
-     */
-    function close() external override onlyOwner nonReentrant {
-        require(activePositionIndexes.length == 0, "E15"); // E15: Active positions must be zero
-
-        for (uint256 i = 0; i < positions.length; i++) {
-            uint256 tokenId = positions[i].tokenId;
-
-            // Burn the position
-            positionManager.burn(tokenId);
-        }
-
-        // Clear the positions array
-        delete positions;
     }
 
     /**

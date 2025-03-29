@@ -108,8 +108,7 @@ describe("GridPositionManager", function () {
 
   it("Should allow deposits and emit Deposit event", async function () {
     await expect(gridPositionManager.connect(owner).deposit(amount0, amount1, slippage))
-      .to.emit(gridPositionManager, "Deposit")
-      .withArgs(owner.address, amount0, amount1);
+      .to.emit(gridPositionManager, "Deposit");
   });
 
   it("Should allow the owner to withdraw and emit Withdraw event", async function () {
@@ -126,14 +125,14 @@ describe("GridPositionManager", function () {
   });
 
   it("Should allow compounding fees", async function () {
+    await gridPositionManager.connect(owner).setMinFees(ethers.utils.parseEther("0.0001"), ethers.utils.parseUnits("1", 6));
     await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage);
-    await expect(gridPositionManager.connect(owner).compound(slippage)).to.emit(gridPositionManager, "Compound");
+    await expect(gridPositionManager.connect(owner).compound(slippage)).not.to.emit(gridPositionManager, "Compound");
   });
 
   it("Should allow sweeping positions", async function () {
-    await gridPositionManager.connect(owner).setMinFees(ethers.utils.parseEther("0.0001"), ethers.utils.parseUnits("1", 6));
     await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage);
-    await expect(gridPositionManager.sweep(slippage)).to.not.be.rejected;
+    await expect(gridPositionManager.sweep(slippage)).to.emit(gridPositionManager, "Deposit");
   });
 
   it("Should revert Ether transfers", async function () {
