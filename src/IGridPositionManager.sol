@@ -10,6 +10,19 @@ interface IGridPositionManager {
         uint128 liquidity; // Liquidity of the position
         uint256 index; // Index of the position in the positions array
     }
+
+    struct GridInfo {
+        address pool; // Address of the Uniswap V3 pool
+        address positionManager; // Address of the Uniswap V3 position manager
+        uint256 gridStep; // Step size for the grid
+        uint256 gridQuantity; // Quantity of positions in the grid
+        uint256 token0MinFees; // Minimum fees for token0
+        uint256 token1MinFees; // Minimum fees for token1
+        uint8   token0Decimals; // Decimals for token0
+        uint8   token1Decimals; // Decimals for token1
+        string  token0Symbol; // Symbol for token0
+        string  token1Symbol; // Symbol for token1
+    }
     // Events
     /**
      * @dev Emitted when liquidity is deposited.
@@ -126,4 +139,8 @@ interface IGridPositionManager {
      * @return The position details.
      */
     function getPosition(uint256 index) external view returns (Position memory);
+
+    function getActivePositions() external view returns (Position[] memory);
+
+    function getPoolInfo() external view returns (GridInfo memory);
 }
