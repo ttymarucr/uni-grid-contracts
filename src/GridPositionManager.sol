@@ -6,19 +6,24 @@ import "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
 import "@uniswap/v3-periphery/contracts/interfaces/INonfungiblePositionManager.sol";
 import "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
 import "@uniswap/v3-periphery/contracts/interfaces/IERC20Metadata.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
+// import "@openzeppelin/contracts/access/Ownable.sol";
 import "@uniswap/v3-core/contracts/libraries/TickMath.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+// import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol";
+import "./proxy/utils/Initializable.sol";
+import "./access/OwnableUpgradeable.sol";
+import "./security/ReentrancyGuardUpgradeable.sol";
 import "./IGridPositionManager.sol";
+
+
 /**
  * @title GridPositionManager
  * @dev Manages grid-based liquidity positions on Uniswap V3.
  *      Allows depositing, withdrawing, compounding, and sweeping liquidity positions.
  */
 
-contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
+contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGuardUpgradeable, IGridPositionManager {
     using SafeMath for uint256;
     /// @custom:storage-location erc7201:tty0.unigrids.GridPositionManager
     struct GridPositionManagerStorage {
@@ -48,6 +53,39 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
     modifier selfOrOwner() {
         require(msg.sender == owner() || msg.sender == address(this), "E01");
         _;
+    }
+
+    /**
+     * @dev Initializes the contract. Replaces the constructor for UUPS proxies.
+     * @param _pool Address of the Uniswap V3 pool.
+     * @param _positionManager Address of the Uniswap V3 position manager.
+     * @param _gridQuantity Total grid quantity.
+     * @param _gridStep Step size for grid prices.
+     */
+    function initialize(
+        address _pool,
+        address _positionManager,
+        uint256 _gridQuantity,
+        uint256 _gridStep
+    ) public initializer {
+        require(_pool != address(0), "E01: Invalid pool address");
+        require(_positionManager != address(0), "E02: Invalid position manager address");
+        require(_gridQuantity > 0, "E03: Grid quantity must be greater than 0");
+        require(_gridStep > 0, "E04: Grid step must be greater than 0");
+        __Ownable_init();
+        __ReentrancyGuard_init();
+
+        GridPositionManagerStorage storage $ = _getStorage();
+        $.pool = IUniswapV3Pool(_pool);
+        $.positionManager = INonfungiblePositionManager(_positionManager);
+        $.gridQuantity = _gridQuantity;
+        $.gridStep = _gridStep;
+        $.token0MinFees = 0;
+        $.token1MinFees = 0;
+
+        // Approve max token amounts for token0 and token1
+        TransferHelper.safeApprove(IUniswapV3Pool(_pool).token0(), _positionManager, type(uint256).max);
+        TransferHelper.safeApprove(IUniswapV3Pool(_pool).token1(), _positionManager, type(uint256).max);
     }
 
     /**
@@ -86,7 +124,7 @@ contract GridPositionManager is Ownable, ReentrancyGuard, IGridPositionManager {
         public
         override
         nonReentrant
-        selfOrOwner
+        onlyOwner
     {
         require(token0Amount > 0 && token1Amount > 0, "E05: Token amounts must be greater than 0");
         require(slippage <= 500, "E06: Slippage must be less than or equal to 500 (5%)");
