@@ -46,14 +46,6 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
     }
 
     /**
-     * @dev Modifier to restrict access to the contract owner or the contract itself.
-     */
-    modifier selfOrOwner() {
-        require(msg.sender == owner() || msg.sender == address(this), "E01");
-        _;
-    }
-
-    /**
      * @dev Initializes the contract. Replaces the constructor for UUPS proxies.
      * @param _pool Address of the Uniswap V3 pool.
      * @param _positionManager Address of the Uniswap V3 position manager.
