@@ -1,20 +1,18 @@
 // SPDX-License-Identifier: MIT
 pragma abicoder v2;
-pragma solidity ^0.7.0;
+pragma solidity ^0.7.6;
 
 import "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
 import "@uniswap/v3-periphery/contracts/interfaces/INonfungiblePositionManager.sol";
 import "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
 import "@uniswap/v3-periphery/contracts/interfaces/IERC20Metadata.sol";
-// import "@openzeppelin/contracts/access/Ownable.sol";
 import "@uniswap/v3-core/contracts/libraries/TickMath.sol";
-// import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol";
 import "./proxy/utils/Initializable.sol";
 import "./access/OwnableUpgradeable.sol";
 import "./security/ReentrancyGuardUpgradeable.sol";
-import "./IGridPositionManager.sol";
+import "./interfaces/IGridPositionManager.sol";
 
 
 /**
@@ -74,32 +72,6 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
         require(_gridStep > 0, "E04: Grid step must be greater than 0");
         __Ownable_init();
         __ReentrancyGuard_init();
-
-        GridPositionManagerStorage storage $ = _getStorage();
-        $.pool = IUniswapV3Pool(_pool);
-        $.positionManager = INonfungiblePositionManager(_positionManager);
-        $.gridQuantity = _gridQuantity;
-        $.gridStep = _gridStep;
-        $.token0MinFees = 0;
-        $.token1MinFees = 0;
-
-        // Approve max token amounts for token0 and token1
-        TransferHelper.safeApprove(IUniswapV3Pool(_pool).token0(), _positionManager, type(uint256).max);
-        TransferHelper.safeApprove(IUniswapV3Pool(_pool).token1(), _positionManager, type(uint256).max);
-    }
-
-    /**
-     * @dev Constructor to initialize the contract.
-     * @param _pool Address of the Uniswap V3 pool.
-     * @param _positionManager Address of the Uniswap V3 position manager.
-     * @param _gridQuantity Total grid quantity.
-     * @param _gridStep Step size for grid prices.
-     */
-    constructor(address _pool, address _positionManager, uint256 _gridQuantity, uint256 _gridStep) {
-        require(_pool != address(0), "E01: Invalid pool address");
-        require(_positionManager != address(0), "E02: Invalid position manager address");
-        require(_gridQuantity > 0, "E03: Grid quantity must be greater than 0");
-        require(_gridStep > 0, "E04: Grid step must be greater than 0");
 
         GridPositionManagerStorage storage $ = _getStorage();
         $.pool = IUniswapV3Pool(_pool);

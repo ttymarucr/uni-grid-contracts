@@ -14,7 +14,8 @@ contract DeployGridPositionManager is Script {
         address positionManager = 0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1; // Replace with actual position manager address
         uint256 gridQuantity = 20; // Replace with actual grid size
         uint256 gridStep = 10; // Replace with actual grid step
-        GridPositionManager gridPositionManager = new GridPositionManager(pool, positionManager, gridQuantity, gridStep);
+        GridPositionManager gridPositionManager = new GridPositionManager();
+        gridPositionManager.initialize(pool, positionManager, gridQuantity, gridStep);
 
         // Log the deployed contract address
         console.log("GridPositionManager deployed at:", address(gridPositionManager));

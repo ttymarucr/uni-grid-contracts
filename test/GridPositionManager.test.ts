@@ -57,13 +57,14 @@ describe("GridPositionManager", function () {
     const iNonfungiblePositionManager = await ethers.getContractAt("INonfungiblePositionManager", positionManagerAddress);
 
     const GridPositionManager = await ethers.getContractFactory("GridPositionManager");
-    gridPositionManager = await GridPositionManager.connect(owner).deploy(
+    gridPositionManager = await GridPositionManager.connect(owner).deploy();
+    await gridPositionManager.deployed();
+    await gridPositionManager.initialize(
       iUniswapV3Pool.address,
       iNonfungiblePositionManager.address,
       10,
       1
     );
-    await gridPositionManager.deployed();
 
     const wethContract = await ethers.getContractAt("IERC20", WETHAddress);
     const usdcContract = await ethers.getContractAt("IERC20", USDCAddress);
@@ -110,8 +111,8 @@ describe("GridPositionManager", function () {
 
   it("Should allow the owner to set minimum fees", async function () {
     await gridPositionManager.connect(owner).setMinFees(ethers.utils.parseEther("0.0001"), ethers.utils.parseUnits("0.0001", 6));
-    const token0MinFees = await gridPositionManager.token0MinFees();
-    const token1MinFees = await gridPositionManager.token1MinFees();
+    const poolInfo = await gridPositionManager.getPoolInfo();
+    const {token0MinFees, token1MinFees} = poolInfo;
     expect(token0MinFees).to.equal(ethers.utils.parseEther("0.0001"));
     expect(token1MinFees).to.equal(ethers.utils.parseUnits("0.0001", 6));
   });
