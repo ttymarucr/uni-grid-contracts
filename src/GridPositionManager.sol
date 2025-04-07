@@ -115,14 +115,14 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
      * @param tickLower The lower tick of the grid.
      * @param tickUpper The upper tick of the grid.
      * @param currentTick The current tick of the pool.
-     * @param halfGridLength Half the length of the grid.
+     * @param positionsLength The number of positions to be created.
      * @param slippage Maximum allowable slippage for adding liquidity (in basis points).
      */
     function _handlePosition(
         int24 tickLower,
         int24 tickUpper,
         int24 currentTick,
-        uint256 halfGridLength,
+        uint256 positionsLength,
         uint256 slippage
     ) internal {
         GridPositionManagerStorage storage $ = _getStorage();
@@ -135,9 +135,9 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
         uint256 amount1Desired;
 
         if (tickUpper < currentTick) {
-            amount1Desired = token1Balance.div(halfGridLength);
+            amount1Desired = token1Balance.div(positionsLength);
         } else if (tickLower > currentTick) {
-            amount0Desired = token0Balance.div(halfGridLength);
+            amount0Desired = token0Balance.div(positionsLength);
         } else {
             return; // Skip middle grid
         }
@@ -438,11 +438,10 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
         require(gridTicks.length > 2, "E07: Invalid tick range");
 
         uint256 gridLength = gridTicks.length - 1;
-        uint256 halfGridLength = gridLength.div(2);
+        uint256 positionsLength = gridType == GridType.NEUTRAL? gridLength.div(2) : gridLength;
 
         for (uint256 i = 0; i < gridLength; i++) {
-            // Extracted logic for calculating desired amounts and handling positions
-            _handlePosition(gridTicks[i], gridTicks[i + 1], currentTick, halfGridLength - (i % halfGridLength), slippage);
+            _handlePosition(gridTicks[i], gridTicks[i + 1], currentTick, positionsLength - (i % positionsLength), slippage);
         }
     }
 

@@ -122,8 +122,18 @@ describe("GridPositionManager", function () {
     expect(token1MinFees).to.equal(ethers.utils.parseUnits("0.0001", 6));
   });
 
-  it("Should allow deposits and emit Deposit event", async function () {
+  it("Should allow NEUTRAL deposits and emit Deposit event", async function () {
     await expect(gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.NEUTRAL))
+      .to.emit(gridPositionManager, "Deposit");
+  });
+
+  it("Should allow SELL deposits and emit Deposit event", async function () {
+    await expect(gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.SELL))
+      .to.emit(gridPositionManager, "Deposit");
+  });
+
+  it("Should allow BUY deposits and emit Deposit event", async function () {
+    await expect(gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.BUY))
       .to.emit(gridPositionManager, "Deposit");
   });
 
@@ -149,15 +159,37 @@ describe("GridPositionManager", function () {
     );
   });
 
-  it("Should allow compounding fees", async function () {
+  it("Should allow NEUTRAL compounding fees", async function () {
     await gridPositionManager.connect(owner).setMinFees(ethers.utils.parseEther("0.0001"), ethers.utils.parseUnits("1", 6));
     await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.NEUTRAL);
     await expect(gridPositionManager.connect(owner).compound(slippage, GridType.NEUTRAL)).not.to.emit(gridPositionManager, "Compound");
   });
 
-  it("Should allow sweeping positions", async function () {
+  it("Should allow BUY compounding fees", async function () {
+    await gridPositionManager.connect(owner).setMinFees(ethers.utils.parseEther("0.001"), ethers.utils.parseUnits("1", 6));
+    await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.BUY);
+    await expect(gridPositionManager.connect(owner).compound(slippage, GridType.BUY)).not.to.emit(gridPositionManager, "Compound");
+  });
+
+  it("Should allow SELL compounding fees", async function () {
+    await gridPositionManager.connect(owner).setMinFees(ethers.utils.parseEther("0.0001"), ethers.utils.parseUnits("1", 6));
+    await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.SELL);
+    await expect(gridPositionManager.connect(owner).compound(slippage, GridType.SELL)).not.to.emit(gridPositionManager, "Compound");
+  });
+
+  it("Should allow NEUTRAL sweeping positions", async function () {
     await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.NEUTRAL);
     await expect(gridPositionManager.sweep(slippage, GridType.NEUTRAL)).to.emit(gridPositionManager, "Deposit");
+  });
+
+  it("Should allow BUY sweeping positions", async function () {
+    await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.BUY);
+    await expect(gridPositionManager.sweep(slippage, GridType.BUY)).to.emit(gridPositionManager, "Deposit");
+  });
+
+  it("Should allow SELL sweeping positions", async function () {
+    await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.SELL);
+    await expect(gridPositionManager.sweep(slippage, GridType.SELL)).to.emit(gridPositionManager, "Deposit");
   });
 
   it("Should revert Ether transfers", async function () {
