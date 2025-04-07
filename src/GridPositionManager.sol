@@ -186,15 +186,15 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
             // Update the position's liquidity to 0
             $.positions[index].liquidity = 0;
         }
-        uint256 accumulated0Fees = IERC20Metadata($.pool.token0()).balanceOf(address(this));
-        uint256 accumulated1Fees = IERC20Metadata($.pool.token1()).balanceOf(address(this));
-        if (accumulated0Fees > 0) {
-            TransferHelper.safeTransfer($.pool.token0(), msg.sender, accumulated0Fees);
+        uint256 token0Balance = IERC20Metadata($.pool.token0()).balanceOf(address(this));
+        uint256 token1Balance = IERC20Metadata($.pool.token1()).balanceOf(address(this));
+        if (token0Balance > 0) {
+            TransferHelper.safeTransfer($.pool.token0(), msg.sender, token0Balance);
         }
-        if (accumulated1Fees > 0) {
-            TransferHelper.safeTransfer($.pool.token1(), msg.sender, accumulated1Fees);
+        if (token1Balance > 0) {
+            TransferHelper.safeTransfer($.pool.token1(), msg.sender, token1Balance);
         }
-        emit Withdraw(msg.sender, accumulated0Fees, accumulated1Fees);
+        emit Withdraw(msg.sender, token0Balance, token1Balance);
     }
 
     /**
@@ -294,51 +294,6 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
         if (accumulated0Fees > $.token0MinFees || accumulated1Fees > $.token1MinFees) {
             _deposit(slippage, gridType);
         }
-    }
-
-    /**
-     * @dev Emergency withdraw function to recover all funds in the contract.
-     *      Only callable by the contract owner.
-     */
-    function emergencyWithdraw() external onlyOwner nonReentrant {
-        GridPositionManagerStorage storage $ = _getStorage();
-        // Iterate over active positions and transfer tokens to the sender
-        while ($.activePositionIndexes.length > 0) {
-            uint256 i = $.activePositionIndexes.length - 1;
-            uint256 index = $.activePositionIndexes[i];
-            uint256 tokenId = $.positions[index].tokenId;
-
-            // Collect fees and tokens
-            $.positionManager.collect(
-                INonfungiblePositionManager.CollectParams({
-                    tokenId: tokenId,
-                    recipient: address(this),
-                    amount0Max: type(uint128).max,
-                    amount1Max: type(uint128).max
-                })
-            );
-
-            // Remove the position from the active positions list
-            _removeActivePosition(i);
-
-            // Update the position's liquidity to 0
-            $.positions[index].liquidity = 0;
-        }
-
-        // Withdraw all token0 funds
-        uint256 token0Balance = IERC20Metadata($.pool.token0()).balanceOf(address(this));
-        if (token0Balance > 0) {
-            TransferHelper.safeTransfer($.pool.token0(), msg.sender, token0Balance);
-        }
-
-        // Withdraw all token1 funds
-        uint256 token1Balance = IERC20Metadata($.pool.token1()).balanceOf(address(this));
-        if (token1Balance > 0) {
-            TransferHelper.safeTransfer($.pool.token1(), msg.sender, token1Balance);
-        }
-
-        // Emit an event for transparency
-        emit EmergencyWithdraw(msg.sender, token0Balance, token1Balance);
     }
 
     /**

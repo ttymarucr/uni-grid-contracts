@@ -56,14 +56,6 @@ interface IGridPositionManager {
      */
     event Compound(address indexed owner, uint256 accumulated0Fees, uint256 accumulated1Fees);
 
-    /**
-     * @dev Emitted when the owner performs an emergency withdrawal.
-     * @param owner Address of the owner performing the withdrawal.
-     * @param token0Amount Amount of token0 withdrawn.
-     * @param token1Amount Amount of token1 withdrawn.
-     */
-    event EmergencyWithdraw(address indexed owner, uint256 token0Amount, uint256 token1Amount);
-
     event GridStepUpdated(uint256 newGridStep);
     event GridQuantityUpdated(uint256 newGridQuantity);
     event MinFeesUpdated(uint256 token0MinFees, uint256 token1MinFees);

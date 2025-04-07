@@ -225,24 +225,6 @@ describe("GridPositionManager", function () {
     await expect(gridPositionManager.connect(owner).close()).to.be.revertedWith("E12: Active positions must be zero");
   });
 
-  it("Should allow the owner to perform an emergency withdraw", async function () {
-    // Deposit funds to create positions
-    await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.NEUTRAL);
-
-    // Call the emergencyWithdraw function
-    await expect(gridPositionManager.connect(owner).emergencyWithdraw())
-      .to.emit(gridPositionManager, "EmergencyWithdraw");
-
-    // Verify that token0 and token1 balances are transferred to the owner
-    const token0Balance = await ethers.provider.getBalance(gridPositionManager.address);
-    const token1Balance = await ethers.provider.getBalance(gridPositionManager.address);
-    expect(token0Balance).to.equal(0);
-    expect(token1Balance).to.equal(0);
-    // Verify that active positions are cleared
-    const activePositions = await gridPositionManager.getActivePositionIndexes();
-    expect(activePositions.length).to.equal(0);
-  });
-
   it("Should revert if non-owner tries to perform an emergency withdraw", async function () {
     // Deposit funds to create positions
     await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.NEUTRAL);

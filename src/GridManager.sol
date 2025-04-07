@@ -10,12 +10,10 @@ import "./access/OwnableUpgradeable.sol";
 
 contract GridManager is UpgradeableBeacon {
 
-    event GridManagerDeployed(
+    event GridDeployed(
         address indexed owner,
-        address indexed pool,
-        address indexed positionManager,
-        uint256 gridSize,
-        uint256 gridStep
+        address indexed gridPositionManager,
+        address pool
     );
 
     constructor(address implementation_) UpgradeableBeacon(implementation_) {}
@@ -38,7 +36,7 @@ contract GridManager is UpgradeableBeacon {
             address(proxy),
             abi.encodeWithSelector(OwnableUpgradeable.transferOwnership.selector, msg.sender)
         );
-        emit GridManagerDeployed(msg.sender, pool, positionManager, gridSize, gridStep);
+        emit GridDeployed(msg.sender, address(proxy), pool);
         return address(proxy);
     }
 }

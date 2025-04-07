@@ -11,8 +11,8 @@ contract DeployGridPositionManager is Script {
         vm.startBroadcast();
 
         // Deploy the GridPositionManager implementation contract
-        GridPositionManager gridPositionManagerImplementation = new GridPositionManager();
-
+        // GridPositionManager gridPositionManagerImplementation = new GridPositionManager();
+        address gridPositionManagerImplementation = 0x0e4FE67d89609B2394EB23bfF1206e82A639bB36;
         // Deploy the UpgradeableBeacon with the implementation address
         GridManager gridManager = new GridManager(address(gridPositionManagerImplementation));
 
