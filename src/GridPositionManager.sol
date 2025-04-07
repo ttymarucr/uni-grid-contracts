@@ -91,8 +91,9 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
      * @param token0Amount Amount of token0 to deposit.
      * @param token1Amount Amount of token1 to deposit.
      * @param slippage Maximum allowable slippage for adding liquidity (in basis points, e.g., 100 = 1%).
+     * @param gridType The type of grid (NEUTRAL, BUY, SELL).
      */
-    function deposit(uint256 token0Amount, uint256 token1Amount, uint256 slippage)
+    function deposit(uint256 token0Amount, uint256 token1Amount, uint256 slippage, GridType gridType)
         public
         override
         nonReentrant
@@ -106,7 +107,7 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
         TransferHelper.safeTransferFrom($.pool.token0(), msg.sender, address(this), token0Amount);
         TransferHelper.safeTransferFrom($.pool.token1(), msg.sender, address(this), token1Amount);
 
-        _deposit(slippage);
+        _deposit(slippage, gridType);
     }
 
     /**
@@ -207,8 +208,9 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
     /**
      * @dev Compounds collected fees into liquidity for the closest active position.
      * @param slippage Maximum allowable slippage for adding liquidity (in basis points, e.g., 100 = 1%).
+     * @param gridType The type of grid (NEUTRAL, BUY, SELL).
      */
-    function compound(uint256 slippage) external override nonReentrant {
+    function compound(uint256 slippage, GridType gridType) external override nonReentrant {
         require(slippage <= 500, "E06: Slippage must be less than or equal to 500 (5%)");
 
         GridPositionManagerStorage storage $ = _getStorage();
@@ -235,7 +237,7 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
 
         // Check if there are any fees to compound
         if (accumulated0Fees > $.token0MinFees || accumulated1Fees > $.token1MinFees) {
-            _deposit(slippage);
+            _deposit(slippage, gridType);
             emit Compound(msg.sender, accumulated0Fees, accumulated1Fees);
         }
     }
@@ -243,8 +245,9 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
     /**
      * @dev Sweeps positions outside the price range and redeposits the collected tokens.
      * @param slippage Maximum allowable slippage for adding liquidity (in basis points, e.g., 100 = 1%).
+     * @param gridType The type of grid (NEUTRAL, BUY, SELL).
      */
-    function sweep(uint256 slippage) external override {
+    function sweep(uint256 slippage, GridType gridType) external override {
         require(slippage <= 500, "E06: Slippage must be less than or equal to 500 (5%)");
         GridPositionManagerStorage storage $ = _getStorage();
         // Fetch the current pool tick
@@ -297,7 +300,7 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
         uint256 accumulated0Fees = IERC20Metadata($.pool.token0()).balanceOf(address(this));
         uint256 accumulated1Fees = IERC20Metadata($.pool.token1()).balanceOf(address(this));
         if (accumulated0Fees > $.token0MinFees || accumulated1Fees > $.token1MinFees) {
-            _deposit(slippage);
+            _deposit(slippage, gridType);
         }
     }
 
@@ -425,13 +428,13 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
     }
 
     
-    function _deposit(uint256 slippage) internal {
+    function _deposit(uint256 slippage, GridType gridType) internal {
         GridPositionManagerStorage storage $ = _getStorage();
         // Fetch the current pool tick
         (, int24 currentTick,,,,,) = $.pool.slot0();
         int24 averageTick = _getTWAP();
         _validatePrice(currentTick, averageTick, 100); // Allow max deviation of 100 ticks
-        int24[] memory gridTicks = _calculateGridTicks(currentTick);
+        int24[] memory gridTicks = _calculateGridTicks(currentTick, gridType);
         require(gridTicks.length > 2, "E07: Invalid tick range");
 
         uint256 gridLength = gridTicks.length - 1;
@@ -532,9 +535,10 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
      * @dev Calculates grid ticks based on the target tick and pool's tick spacing.
      *      Ignores the grid that is within the range of the target tick.
      * @param targetTick The target tick for the grid.
+     * @param gridType The type of grid (NEUTRAL, BUY, SELL).
      * @return An array of grid ticks.
      */
-    function _calculateGridTicks(int24 targetTick) internal view returns (int24[] memory) {
+    function _calculateGridTicks(int24 targetTick, GridType gridType) internal view returns (int24[] memory) {
         GridPositionManagerStorage storage $ = _getStorage();
         require($.gridQuantity > 0, "E03: Grid quantity must be greater than 0");
 
@@ -542,13 +546,19 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
         int24 tickSpacing = $.pool.tickSpacing() * int24($.gridStep);
         require(tickSpacing > 0, "E04: Grid step must be greater than 0");
 
-        int24 tickRange = int24($.gridQuantity / 2) * tickSpacing;
+        int24 tickRange = int24(gridType == GridType.NEUTRAL?$.gridQuantity / 2: $.gridQuantity) * tickSpacing;
 
         // Ensure the lower and upper ticks are aligned with the tick spacing
         int24 lowerTick = targetTick - tickRange;
+        if (gridType == GridType.SELL) {
+            lowerTick = targetTick;
+        }
         lowerTick = lowerTick - (lowerTick % tickSpacing);
 
         int24 upperTick = targetTick + tickRange;
+        if (gridType == GridType.BUY) {
+            upperTick = targetTick;
+        }
         upperTick = upperTick - (upperTick % tickSpacing);
 
         uint256 gridCount = uint256((upperTick - lowerTick) / tickSpacing);

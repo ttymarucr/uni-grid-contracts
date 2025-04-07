@@ -23,6 +23,13 @@ interface IGridPositionManager {
         string  token0Symbol; // Symbol for token0
         string  token1Symbol; // Symbol for token1
     }
+
+    enum GridType {
+        NEUTRAL,
+        BUY,
+        SELL
+    }
+
     // Events
     /**
      * @dev Emitted when liquidity is deposited.
@@ -71,8 +78,9 @@ interface IGridPositionManager {
      * @param token0Amount Amount of token0 to deposit.
      * @param token1Amount Amount of token1 to deposit.
      * @param slippage Maximum allowable slippage for adding liquidity (in basis points, e.g., 100 = 1%).
+     * @param gridType The type of grid (NEUTRAL, BUY, SELL).
      */
-    function deposit(uint256 token0Amount, uint256 token1Amount, uint256 slippage) external;
+    function deposit(uint256 token0Amount, uint256 token1Amount, uint256 slippage, GridType gridType) external;
 
     /**
      * @dev Withdraws all liquidity from active positions.
@@ -83,14 +91,16 @@ interface IGridPositionManager {
     /**
      * @dev Compounds collected fees into liquidity for active positions.
      * @param slippage Maximum allowable slippage for adding liquidity (in basis points, e.g., 100 = 1%).
+     * @param gridType The type of grid (NEUTRAL, BUY, SELL).
      */
-    function compound(uint256 slippage) external;
+    function compound(uint256 slippage, GridType gridType) external;
 
     /**
      * @dev Sweeps positions outside the price range and redeposits the collected tokens.
      * @param slippage Maximum allowable slippage for adding liquidity (in basis points, e.g., 100 = 1%).
+     * @param gridType The type of grid (NEUTRAL, BUY, SELL).
      */
-    function sweep(uint256 slippage) external;
+    function sweep(uint256 slippage, GridType gridType) external;
 
     /**
      * @dev Closes all positions by burning them. Can only be called if activePositionIndexes.length is zero.
