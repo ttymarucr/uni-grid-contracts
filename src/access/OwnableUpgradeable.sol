@@ -16,6 +16,7 @@ import "../proxy/utils/Initializable.sol";
  * `onlyOwner`, which can be applied to your functions to restrict their use to
  * the owner.
  */
+
 abstract contract OwnableUpgradeable is Initializable, ContextUpgradeable {
     address private _owner;
 
@@ -71,5 +72,6 @@ abstract contract OwnableUpgradeable is Initializable, ContextUpgradeable {
         emit OwnershipTransferred(_owner, newOwner);
         _owner = newOwner;
     }
+
     uint256[49] private __gap;
 }

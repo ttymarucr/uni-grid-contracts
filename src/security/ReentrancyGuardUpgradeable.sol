@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 pragma solidity ^0.7.6;
+
 import "../proxy/utils/Initializable.sol";
 
 /**
@@ -64,5 +65,6 @@ abstract contract ReentrancyGuardUpgradeable is Initializable {
         // https://eips.ethereum.org/EIPS/eip-2200)
         _status = _NOT_ENTERED;
     }
+
     uint256[49] private __gap;
 }

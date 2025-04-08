@@ -15,16 +15,15 @@ import "./access/OwnableUpgradeable.sol";
 import "./security/ReentrancyGuardUpgradeable.sol";
 import "./interfaces/IGridPositionManager.sol";
 
-
 /**
  * @title GridPositionManager
  * @dev Manages grid-based liquidity positions on Uniswap V3.
  *      Allows depositing, withdrawing, compounding, and sweeping liquidity positions.
  */
-
 contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGuardUpgradeable, IGridPositionManager {
     using SafeMath for uint256;
     /// @custom:storage-location erc7201:tty0.unigrids.GridPositionManager
+
     struct GridPositionManagerStorage {
         IUniswapV3Pool pool; // Uniswap V3 pool
         INonfungiblePositionManager positionManager; // Position manager for Uniswap V3
@@ -53,12 +52,10 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
      * @param _gridQuantity Total grid quantity.
      * @param _gridStep Step size for grid prices.
      */
-    function initialize(
-        address _pool,
-        address _positionManager,
-        uint256 _gridQuantity,
-        uint256 _gridStep
-    ) public initializer {
+    function initialize(address _pool, address _positionManager, uint256 _gridQuantity, uint256 _gridStep)
+        public
+        initializer
+    {
         require(_pool != address(0), "E01: Invalid pool address");
         require(_positionManager != address(0), "E02: Invalid position manager address");
         require(_gridQuantity > 0, "E03: Grid quantity must be greater than 0");
@@ -120,7 +117,10 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
     ) internal {
         GridPositionManagerStorage storage $ = _getStorage();
         require(tickLower < tickUpper, "E07: Invalid tick range");
-        require(tickLower % $.pool.tickSpacing() == 0 && tickUpper % $.pool.tickSpacing() == 0, "E08: Ticks must align with spacing");
+        require(
+            tickLower % $.pool.tickSpacing() == 0 && tickUpper % $.pool.tickSpacing() == 0,
+            "E08: Ticks must align with spacing"
+        );
 
         uint256 token0Balance = IERC20Metadata($.pool.token0()).balanceOf(address(this));
         uint256 token1Balance = IERC20Metadata($.pool.token1()).balanceOf(address(this));
@@ -336,10 +336,7 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
      */
     function setGridQuantity(uint256 _newGridQuantity) external override onlyOwner {
         GridPositionManagerStorage storage $ = _getStorage();
-        require(
-            _newGridQuantity > 0 && _newGridQuantity < 10000,
-            "E10: Grid quantity must be between 1 and 9999"
-        );
+        require(_newGridQuantity > 0 && _newGridQuantity < 10000, "E10: Grid quantity must be between 1 and 9999");
         $.gridQuantity = _newGridQuantity;
         emit GridQuantityUpdated(_newGridQuantity);
     }
@@ -374,7 +371,7 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
         GridPositionManagerStorage storage $ = _getStorage();
         return $.activePositionIndexes;
     }
-    
+
     function _deposit(uint256 slippage, GridType gridType) internal {
         GridPositionManagerStorage storage $ = _getStorage();
         // Fetch the current pool tick
@@ -385,10 +382,12 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
         require(gridTicks.length > 2, "E07: Invalid tick range");
 
         uint256 gridLength = gridTicks.length - 1;
-        uint256 positionsLength = gridType == GridType.NEUTRAL? gridLength.div(2) : gridLength;
+        uint256 positionsLength = gridType == GridType.NEUTRAL ? gridLength.div(2) : gridLength;
 
         for (uint256 i = 0; i < gridLength; i++) {
-            _handlePosition(gridTicks[i], gridTicks[i + 1], currentTick, positionsLength - (i % positionsLength), slippage);
+            _handlePosition(
+                gridTicks[i], gridTicks[i + 1], currentTick, positionsLength - (i % positionsLength), slippage
+            );
         }
     }
 
@@ -492,7 +491,7 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
         int24 tickSpacing = $.pool.tickSpacing() * int24($.gridStep);
         require(tickSpacing > 0, "E04: Grid step must be greater than 0");
 
-        int24 tickRange = int24(gridType == GridType.NEUTRAL?$.gridQuantity / 2: $.gridQuantity) * tickSpacing;
+        int24 tickRange = int24(gridType == GridType.NEUTRAL ? $.gridQuantity / 2 : $.gridQuantity) * tickSpacing;
 
         // Ensure the lower and upper ticks are aligned with the tick spacing
         int24 lowerTick = targetTick - tickRange;
@@ -643,18 +642,20 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
 
     function getPoolInfo() external view override returns (GridInfo memory) {
         GridPositionManagerStorage storage $ = _getStorage();
-        return (GridInfo({
-            pool: address($.pool),
-            positionManager: address($.positionManager),
-            gridStep: $.gridStep,
-            gridQuantity: $.gridQuantity,
-            token0MinFees: $.token0MinFees,
-            token1MinFees: $.token1MinFees,
-            token0Decimals: IERC20Metadata($.pool.token0()).decimals(),
-            token1Decimals: IERC20Metadata($.pool.token1()).decimals(),
-            token0Symbol: IERC20Metadata($.pool.token0()).symbol(),
-            token1Symbol: IERC20Metadata($.pool.token1()).symbol()
-        }));
+        return (
+            GridInfo({
+                pool: address($.pool),
+                positionManager: address($.positionManager),
+                gridStep: $.gridStep,
+                gridQuantity: $.gridQuantity,
+                token0MinFees: $.token0MinFees,
+                token1MinFees: $.token1MinFees,
+                token0Decimals: IERC20Metadata($.pool.token0()).decimals(),
+                token1Decimals: IERC20Metadata($.pool.token1()).decimals(),
+                token0Symbol: IERC20Metadata($.pool.token0()).symbol(),
+                token1Symbol: IERC20Metadata($.pool.token1()).symbol()
+            })
+        );
     }
 
     /**
@@ -672,14 +673,29 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
             uint160 sqrtPriceUpperX96 = TickMath.getSqrtRatioAtTick(position.tickUpper);
 
             (uint256 amount0, uint256 amount1) = LiquidityAmounts.getAmountsForLiquidity(
-                sqrtPriceX96,
-                sqrtPriceLowerX96,
-                sqrtPriceUpperX96,
-                position.liquidity
+                sqrtPriceX96, sqrtPriceLowerX96, sqrtPriceUpperX96, position.liquidity
             );
             token0Liquidity = token0Liquidity.add(amount0);
             token1Liquidity = token1Liquidity.add(amount1);
         }
+    }
+
+    /**
+     * @dev Checks if the current pool tick is inside any of the active positions.
+     * @return True if the current tick is inside an active position, false otherwise.
+     */
+    function isInRange() external view override returns (bool) {
+        GridPositionManagerStorage storage $ = _getStorage();
+        (, int24 currentTick,,,,,) = $.pool.slot0();
+
+        for (uint256 i = 0; i < $.activePositionIndexes.length; i++) {
+            uint256 index = $.activePositionIndexes[i];
+            Position memory position = $.positions[index];
+            if (currentTick >= position.tickLower && currentTick <= position.tickUpper) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -689,7 +705,7 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
     function recoverEther() external onlyOwner nonReentrant {
         uint256 balance = address(this).balance;
         require(balance > 0, "E13: No Ether to recover");
-        (bool success, ) = msg.sender.call{value: balance}("");
+        (bool success,) = msg.sender.call{value: balance}("");
         require(success, "Ether transfer failed");
     }
 
@@ -705,9 +721,9 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
         // Fetch the current and historical tick data
         uint32[] memory secondsAgos = new uint32[](2);
         secondsAgos[0] = uint32(secondsAgo); // Start of the time window
-        secondsAgos[1] = 0;                 // Current time
+        secondsAgos[1] = 0; // Current time
 
-        (int56[] memory tickCumulatives, ) = $.pool.observe(secondsAgos);
+        (int56[] memory tickCumulatives,) = $.pool.observe(secondsAgos);
 
         // Calculate the average tick over the time window
         int56 tickDifference = tickCumulatives[1] - tickCumulatives[0];
@@ -737,5 +753,4 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
         int24 deviation = currentTick > twapTick ? currentTick - twapTick : twapTick - currentTick;
         require(deviation <= int24(maxDeviation), "E14: Price deviation too high");
     }
-
 }

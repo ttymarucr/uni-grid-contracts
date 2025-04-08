@@ -128,6 +128,8 @@ describe("GridPositionManager", function () {
     const {token0Liquidity, token1Liquidity} = await gridPositionManager.getLiquidity();
     expect(token0Liquidity).to.be.gt(0);
     expect(token1Liquidity).to.be.gt(0);
+    const isInRange = await gridPositionManager.isInRange();
+    expect(isInRange).to.be.false;
   });
 
   it("Should allow SELL deposits and emit Deposit event", async function () {

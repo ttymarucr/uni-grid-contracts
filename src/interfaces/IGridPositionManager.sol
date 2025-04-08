@@ -18,10 +18,10 @@ interface IGridPositionManager {
         uint256 gridQuantity; // Quantity of positions in the grid
         uint256 token0MinFees; // Minimum fees for token0
         uint256 token1MinFees; // Minimum fees for token1
-        uint8   token0Decimals; // Decimals for token0
-        uint8   token1Decimals; // Decimals for token1
-        string  token0Symbol; // Symbol for token0
-        string  token1Symbol; // Symbol for token1
+        uint8 token0Decimals; // Decimals for token0
+        uint8 token1Decimals; // Decimals for token1
+        string token0Symbol; // Symbol for token0
+        string token1Symbol; // Symbol for token1
     }
 
     enum GridType {
@@ -37,7 +37,6 @@ interface IGridPositionManager {
      * @param token0Amount Amount of token0 deposited.
      * @param token1Amount Amount of token1 deposited.
      */
-
     event Deposit(address indexed owner, uint256 token0Amount, uint256 token1Amount);
 
     /**
@@ -179,4 +178,10 @@ interface IGridPositionManager {
      * @return token1Liquidity Total liquidity of token1.
      */
     function getLiquidity() external view returns (uint256 token0Liquidity, uint256 token1Liquidity);
+
+    /**
+     * @dev Checks if the current pool tick is inside any of the active positions.
+     * @return True if the current tick is inside an active position, false otherwise.
+     */
+    function isInRange() external view returns (bool);
 }
