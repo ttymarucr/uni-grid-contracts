@@ -60,9 +60,28 @@ interface IGridPositionManager {
     event GridQuantityUpdated(uint256 newGridQuantity);
     event MinFeesUpdated(uint256 token0MinFees, uint256 token1MinFees);
 
+    /**
+     * @dev Returns the address of the Uniswap V3 pool.
+     * @return The address of the pool.
+     */
     function getPool() external view returns (address);
+
+    /**
+     * @dev Returns the address of the Uniswap V3 position manager.
+     * @return The address of the position manager.
+     */
     function getPositionManager() external view returns (address);
+
+    /**
+     * @dev Returns the total grid quantity.
+     * @return The total grid quantity.
+     */
     function getGridQuantity() external view returns (uint256);
+
+    /**
+     * @dev Returns the grid step size.
+     * @return The grid step size.
+     */
     function getGridStep() external view returns (uint256);
 
     /**
@@ -142,7 +161,22 @@ interface IGridPositionManager {
      */
     function getPosition(uint256 index) external view returns (Position memory);
 
+    /**
+     * @dev Returns the details of all active positions.
+     * @return An array of active positions.
+     */
     function getActivePositions() external view returns (Position[] memory);
 
+    /**
+     * @dev Returns detailed information about the grid and pool.
+     * @return A GridInfo struct containing pool and grid details.
+     */
     function getPoolInfo() external view returns (GridInfo memory);
+
+    /**
+     * @dev Returns the total liquidity of token0 and token1 across all active positions.
+     * @return token0Liquidity Total liquidity of token0.
+     * @return token1Liquidity Total liquidity of token1.
+     */
+    function getLiquidity() external view returns (uint256 token0Liquidity, uint256 token1Liquidity);
 }

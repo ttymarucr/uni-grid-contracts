@@ -8,6 +8,7 @@ import "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
 import "@uniswap/v3-periphery/contracts/interfaces/IERC20Metadata.sol";
 import "@uniswap/v3-core/contracts/libraries/TickMath.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
+import "@uniswap/v3-periphery/contracts/libraries/LiquidityAmounts.sol";
 import "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol";
 import "./proxy/utils/Initializable.sol";
 import "./access/OwnableUpgradeable.sol";
@@ -373,7 +374,6 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
         GridPositionManagerStorage storage $ = _getStorage();
         return $.activePositionIndexes;
     }
-
     
     function _deposit(uint256 slippage, GridType gridType) internal {
         GridPositionManagerStorage storage $ = _getStorage();
@@ -658,6 +658,31 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
     }
 
     /**
+     * @dev Returns the sum of all active positions' liquidity.
+     * @return token0Liquidity The total liquidity in token0.
+     * @return token1Liquidity The total liquidity in token1.
+     */
+    function getLiquidity() external view override returns (uint256 token0Liquidity, uint256 token1Liquidity) {
+        GridPositionManagerStorage storage $ = _getStorage();
+        (uint160 sqrtPriceX96,,,,,,) = $.pool.slot0();
+        for (uint256 i = 0; i < $.activePositionIndexes.length; i++) {
+            uint256 index = $.activePositionIndexes[i];
+            Position memory position = $.positions[index];
+            uint160 sqrtPriceLowerX96 = TickMath.getSqrtRatioAtTick(position.tickLower);
+            uint160 sqrtPriceUpperX96 = TickMath.getSqrtRatioAtTick(position.tickUpper);
+
+            (uint256 amount0, uint256 amount1) = LiquidityAmounts.getAmountsForLiquidity(
+                sqrtPriceX96,
+                sqrtPriceLowerX96,
+                sqrtPriceUpperX96,
+                position.liquidity
+            );
+            token0Liquidity = token0Liquidity.add(amount0);
+            token1Liquidity = token1Liquidity.add(amount1);
+        }
+    }
+
+    /**
      * @dev Recovers Ether stored in the contract.
      *      Only callable by the contract owner.
      */
@@ -712,4 +737,5 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
         int24 deviation = currentTick > twapTick ? currentTick - twapTick : twapTick - currentTick;
         require(deviation <= int24(maxDeviation), "E14: Price deviation too high");
     }
+
 }

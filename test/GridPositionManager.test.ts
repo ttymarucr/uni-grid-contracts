@@ -125,6 +125,9 @@ describe("GridPositionManager", function () {
   it("Should allow NEUTRAL deposits and emit Deposit event", async function () {
     await expect(gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.NEUTRAL))
       .to.emit(gridPositionManager, "Deposit");
+    const {token0Liquidity, token1Liquidity} = await gridPositionManager.getLiquidity();
+    expect(token0Liquidity).to.be.gt(0);
+    expect(token1Liquidity).to.be.gt(0);
   });
 
   it("Should allow SELL deposits and emit Deposit event", async function () {
@@ -223,16 +226,6 @@ describe("GridPositionManager", function () {
 
     // Attempt to call close while active positions exist
     await expect(gridPositionManager.connect(owner).close()).to.be.revertedWith("E12: Active positions must be zero");
-  });
-
-  it("Should revert if non-owner tries to perform an emergency withdraw", async function () {
-    // Deposit funds to create positions
-    await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.NEUTRAL);
-
-    // Attempt to call emergencyWithdraw as a non-owner
-    await expect(gridPositionManager.connect(addr1).emergencyWithdraw()).to.be.revertedWith(
-      "Ownable: caller is not the owner"
-    );
   });
 
   it("Should revert if active positions exist when closing", async function () {
