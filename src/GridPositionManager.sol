@@ -89,13 +89,23 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
         nonReentrant
         onlyOwner
     {
-        require(token0Amount > 0 && token1Amount > 0, "E05: Token amounts must be greater than 0");
+        if (gridType == GridType.NEUTRAL) {
+            require(token0Amount > 0 && token1Amount > 0, "E05: Token amounts must be greater than 0");
+        } else if (gridType == GridType.BUY) {
+            require(token1Amount > 0, "E14: Token1 amount must be zero for BUY grid type");
+        } else if (gridType == GridType.SELL) {
+            require(token0Amount > 0, "E14: Token0 amount must be zero for SELL grid type");
+        }
         require(slippage <= 500, "E06: Slippage must be less than or equal to 500 (5%)");
 
         GridPositionManagerStorage storage $ = _getStorage();
         // Transfer tokens to the contract using TransferHelper
-        TransferHelper.safeTransferFrom($.pool.token0(), msg.sender, address(this), token0Amount);
-        TransferHelper.safeTransferFrom($.pool.token1(), msg.sender, address(this), token1Amount);
+        if (token0Amount > 0) {
+            TransferHelper.safeTransferFrom($.pool.token0(), msg.sender, address(this), token0Amount);
+        }
+        if (token1Amount > 0) {
+            TransferHelper.safeTransferFrom($.pool.token1(), msg.sender, address(this), token1Amount);
+        }
 
         _deposit(slippage, gridType);
     }
@@ -419,7 +429,7 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
                 deadline: block.timestamp + 1 hours
             })
         );
-        $.positions[index].liquidity = newLiquidity;
+        $.positions[index].liquidity += newLiquidity;
         if (!_isActivePosition(index)) {
             $.activePositionIndexes.push(index);
         }
@@ -648,12 +658,15 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
                 positionManager: address($.positionManager),
                 gridStep: $.gridStep,
                 gridQuantity: $.gridQuantity,
+                fee: $.pool.fee(),
                 token0MinFees: $.token0MinFees,
                 token1MinFees: $.token1MinFees,
                 token0Decimals: IERC20Metadata($.pool.token0()).decimals(),
                 token1Decimals: IERC20Metadata($.pool.token1()).decimals(),
                 token0Symbol: IERC20Metadata($.pool.token0()).symbol(),
-                token1Symbol: IERC20Metadata($.pool.token1()).symbol()
+                token1Symbol: IERC20Metadata($.pool.token1()).symbol(),
+                token0: $.pool.token0(),
+                token1: $.pool.token1()
             })
         );
     }
