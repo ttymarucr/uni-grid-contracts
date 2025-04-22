@@ -10,6 +10,8 @@ evm_version = "istanbul"
 
 [rpc_endpoints]
 base = "https://base-mainnet.g.alchemy.com/v2/_zTD3BWOgxR-BQ1lHisJL86d8LP8XBaF"
+arbitrum = "https://arb-mainnet.g.alchemy.com/v2/_zTD3BWOgxR-BQ1lHisJL86d8LP8XBaF"
 
 [etherscan]
 base = { key = "F91WX5WZAH9C1NM555AEF449T88MY8XWWT" }
+arbitrum = { key = "UPE65TGB3H29615QBVU92BF672C31YPQ4Y" }
