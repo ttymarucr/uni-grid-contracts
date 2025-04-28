@@ -10,6 +10,7 @@ import "@uniswap/v3-core/contracts/libraries/TickMath.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@uniswap/v3-periphery/contracts/libraries/LiquidityAmounts.sol";
 import "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol";
+import { UD60x18 } from "@prb/math/src/UD60x18.sol";
 import "./proxy/utils/Initializable.sol";
 import "./access/OwnableUpgradeable.sol";
 import "./security/ReentrancyGuardUpgradeable.sol";
@@ -77,18 +78,22 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
     }
 
     /**
-     * @dev Deposits liquidity into grid positions.
+     * @dev Deposits liquidity into grid positions with a specified distribution type.
      * @param token0Amount Amount of token0 to deposit.
      * @param token1Amount Amount of token1 to deposit.
      * @param slippage Maximum allowable slippage for adding liquidity (in basis points, e.g., 100 = 1%).
      * @param gridType The type of grid (NEUTRAL, BUY, SELL).
+     * @param distributionType The type of liquidity distribution (FLAT, CURVED, LINEAR, SIGMOID, FIBONACCI, LOGARITHMIC).
      */
-    function deposit(uint256 token0Amount, uint256 token1Amount, uint256 slippage, GridType gridType)
-        public
-        override
-        nonReentrant
-        onlyOwner
-    {
+    function deposit(
+        uint256 token0Amount,
+        uint256 token1Amount,
+        uint256 slippage,
+        GridType gridType,
+        DistributionType distributionType
+    ) public override nonReentrant onlyOwner {
+        require(slippage <= 500, "E06: Slippage must be less than or equal to 500 (5%)");
+
         if (gridType == GridType.NEUTRAL) {
             require(token0Amount > 0 && token1Amount > 0, "E05: Token amounts must be greater than 0");
         } else if (gridType == GridType.BUY) {
@@ -96,9 +101,9 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
         } else if (gridType == GridType.SELL) {
             require(token0Amount > 0, "E14: Token0 amount must be zero for SELL grid type");
         }
-        require(slippage <= 500, "E06: Slippage must be less than or equal to 500 (5%)");
 
         GridPositionManagerStorage storage $ = _getStorage();
+
         // Transfer tokens to the contract using TransferHelper
         if (token0Amount > 0) {
             TransferHelper.safeTransferFrom($.pool.token0(), msg.sender, address(this), token0Amount);
@@ -107,7 +112,98 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
             TransferHelper.safeTransferFrom($.pool.token1(), msg.sender, address(this), token1Amount);
         }
 
-        _deposit(slippage, gridType);
+        // Distribute liquidity based on the chosen distribution type
+        _distributeLiquidity(token0Amount, token1Amount, slippage, gridType, distributionType);
+    }
+
+    /**
+     * @dev Distributes liquidity across grid positions based on the chosen distribution type.
+     * @param token0Amount Amount of token0 to distribute.
+     * @param token1Amount Amount of token1 to distribute.
+     * @param slippage Maximum allowable slippage for adding liquidity.
+     * @param gridType The type of grid (NEUTRAL, BUY, SELL).
+     * @param distributionType The type of liquidity distribution.
+     */
+    function _distributeLiquidity(
+        uint256 token0Amount,
+        uint256 token1Amount,
+        uint256 slippage,
+        GridType gridType,
+        DistributionType distributionType
+    ) internal {
+        GridPositionManagerStorage storage $ = _getStorage();
+        (, int24 currentTick,,,,,) = $.pool.slot0();
+        int24[] memory gridTicks = _calculateGridTicks(currentTick, gridType);
+
+        uint256 gridLength = gridTicks.length - 1;
+        uint256[] memory distributionWeights = _getDistributionWeights(gridLength, distributionType);
+        uint256 positionsLength = gridType == GridType.NEUTRAL ? gridLength.div(2) : gridLength;
+
+        for (uint256 i = 0; i < gridLength; i++) {
+            uint256 weight = distributionWeights[i];
+            uint256 token0Share = token0Amount.mul(weight).div(10000);
+            uint256 token1Share = token1Amount.mul(weight).div(10000);
+
+            _handlePosition(gridTicks[i], gridTicks[i + 1], currentTick, positionsLength - (i % positionsLength), slippage, token0Share, token1Share);
+        }
+    }
+
+    /**
+     * @dev Returns the distribution weights for the specified distribution type.
+     * @param gridLength The number of grid intervals.
+     * @param distributionType The type of liquidity distribution.
+     * @return An array of distribution weights.
+     */
+    function _getDistributionWeights(uint256 gridLength, DistributionType distributionType)
+        internal
+        pure
+        returns (uint256[] memory)
+    {
+        uint256[] memory weights = new uint256[](gridLength);
+
+        if (distributionType == DistributionType.FLAT) {
+            for (uint256 i = 0; i < gridLength; i++) {
+                weights[i] = 10000 / gridLength; // Equal distribution
+            }
+        } else if (distributionType == DistributionType.CURVED) {
+            for (uint256 i = 0; i < gridLength; i++) {
+                weights[i] = (i + 1) * 10000 / (gridLength * (gridLength + 1) / 2); // Triangular distribution
+            }
+        } else if (distributionType == DistributionType.LINEAR) {
+            for (uint256 i = 0; i < gridLength; i++) {
+                weights[i] = (gridLength - i) * 10000 / (gridLength * (gridLength + 1) / 2); // Linear decay
+            }
+        } else if (distributionType == DistributionType.SIGMOID) {
+            for (uint256 i = 0; i < gridLength; i++) {
+                // Use PRBMath's exp function for the sigmoid curve
+                uint256 x = UD60x18.div(
+                    int256(i * 2e18 - gridLength * 1e18), // Scale input to 18 decimals
+                    int256(gridLength * 1e18)
+                );
+                weights[i] = uint256(10000 / (1 + UD60x18.exp(-x)));
+            }
+        } else if (distributionType == DistributionType.FIBONACCI) {
+            uint256[] memory fib = new uint256[](gridLength);
+            fib[0] = 1;
+            fib[1] = 1;
+            for (uint256 i = 2; i < gridLength; i++) {
+                fib[i] = fib[i - 1] + fib[i - 2];
+            }
+            uint256 total = 0;
+            for (uint256 i = 0; i < gridLength; i++) {
+                total += fib[i];
+            }
+            for (uint256 i = 0; i < gridLength; i++) {
+                weights[i] = fib[i] * 10000 / total;
+            }
+        } else if (distributionType == DistributionType.LOGARITHMIC) {
+            for (uint256 i = 0; i < gridLength; i++) {
+                // Use PRBMath's ln function for logarithmic decay
+                weights[i] = uint256(10000 / (1 + UD60x18.ln(i + 1)));
+            }
+        }
+
+        return weights;
     }
 
     /**
@@ -117,13 +213,17 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
      * @param currentTick The current tick of the pool.
      * @param positionsLength The number of positions to be created.
      * @param slippage Maximum allowable slippage for adding liquidity (in basis points).
+     * @param token0Share The share of token0 to allocate to this position.
+     * @param token1Share The share of token1 to allocate to this position.
      */
     function _handlePosition(
         int24 tickLower,
         int24 tickUpper,
         int24 currentTick,
         uint256 positionsLength,
-        uint256 slippage
+        uint256 slippage,
+        uint256 token0Share,
+        uint256 token1Share
     ) internal {
         GridPositionManagerStorage storage $ = _getStorage();
         require(tickLower < tickUpper, "E07: Invalid tick range");
@@ -134,15 +234,15 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
 
         uint256 token0Balance = IERC20Metadata($.pool.token0()).balanceOf(address(this));
         uint256 token1Balance = IERC20Metadata($.pool.token1()).balanceOf(address(this));
-        uint256 amount0Desired;
-        uint256 amount1Desired;
+        uint256 amount0Desired = token0Share;
+        uint256 amount1Desired = token1Share;
 
         if (tickUpper < currentTick) {
-            amount1Desired = token1Balance.div(positionsLength);
+            amount1Desired = token1Share.div(positionsLength);
+            amount0Desired = 0;
         } else if (tickLower > currentTick) {
-            amount0Desired = token0Balance.div(positionsLength);
-        } else {
-            return; // Skip middle grid
+            amount0Desired = token0Share.div(positionsLength);
+            amount1Desired = 0;
         }
 
         // Calculate slippage-adjusted amounts
@@ -212,8 +312,9 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
      * @dev Compounds collected fees into liquidity for the closest active position.
      * @param slippage Maximum allowable slippage for adding liquidity (in basis points, e.g., 100 = 1%).
      * @param gridType The type of grid (NEUTRAL, BUY, SELL).
+     * @param distributionType The type of liquidity distribution (FLAT, CURVED, LINEAR, SIGMOID, FIBONACCI, LOGARITHMIC).
      */
-    function compound(uint256 slippage, GridType gridType) external override nonReentrant {
+    function compound(uint256 slippage, GridType gridType, DistributionType distributionType) external override nonReentrant {
         require(slippage <= 500, "E06: Slippage must be less than or equal to 500 (5%)");
 
         GridPositionManagerStorage storage $ = _getStorage();
@@ -240,7 +341,7 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
 
         // Check if there are any fees to compound
         if (accumulated0Fees > $.token0MinFees || accumulated1Fees > $.token1MinFees) {
-            _deposit(slippage, gridType);
+            _distributeLiquidity(accumulated0Fees, accumulated1Fees, slippage, gridType, distributionType);
             emit Compound(msg.sender, accumulated0Fees, accumulated1Fees);
         }
     }
@@ -249,8 +350,9 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
      * @dev Sweeps positions outside the price range and redeposits the collected tokens.
      * @param slippage Maximum allowable slippage for adding liquidity (in basis points, e.g., 100 = 1%).
      * @param gridType The type of grid (NEUTRAL, BUY, SELL).
+     * @param distributionType The type of liquidity distribution (FLAT, CURVED, LINEAR, SIGMOID, FIBONACCI, LOGARITHMIC).
      */
-    function sweep(uint256 slippage, GridType gridType) external override {
+    function sweep(uint256 slippage, GridType gridType, DistributionType distributionType) external override {
         require(slippage <= 500, "E06: Slippage must be less than or equal to 500 (5%)");
         GridPositionManagerStorage storage $ = _getStorage();
         // Fetch the current pool tick
@@ -303,7 +405,7 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
         uint256 accumulated0Fees = IERC20Metadata($.pool.token0()).balanceOf(address(this));
         uint256 accumulated1Fees = IERC20Metadata($.pool.token1()).balanceOf(address(this));
         if (accumulated0Fees > $.token0MinFees || accumulated1Fees > $.token1MinFees) {
-            _deposit(slippage, gridType);
+            _distributeLiquidity(accumulated0Fees, accumulated1Fees, slippage, gridType, distributionType);
         }
     }
 
@@ -380,25 +482,6 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
     function getActivePositionIndexes() external view override returns (uint256[] memory) {
         GridPositionManagerStorage storage $ = _getStorage();
         return $.activePositionIndexes;
-    }
-
-    function _deposit(uint256 slippage, GridType gridType) internal {
-        GridPositionManagerStorage storage $ = _getStorage();
-        // Fetch the current pool tick
-        (, int24 currentTick,,,,,) = $.pool.slot0();
-        int24 averageTick = _getTWAP();
-        _validatePrice(currentTick, averageTick, 100); // Allow max deviation of 100 ticks
-        int24[] memory gridTicks = _calculateGridTicks(currentTick, gridType);
-        require(gridTicks.length > 2, "E07: Invalid tick range");
-
-        uint256 gridLength = gridTicks.length - 1;
-        uint256 positionsLength = gridType == GridType.NEUTRAL ? gridLength.div(2) : gridLength;
-
-        for (uint256 i = 0; i < gridLength; i++) {
-            _handlePosition(
-                gridTicks[i], gridTicks[i + 1], currentTick, positionsLength - (i % positionsLength), slippage
-            );
-        }
     }
 
     /**
@@ -765,5 +848,43 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
     function _validatePrice(int24 currentTick, int24 twapTick, uint256 maxDeviation) internal pure {
         int24 deviation = currentTick > twapTick ? currentTick - twapTick : twapTick - currentTick;
         require(deviation <= int24(maxDeviation), "E14: Price deviation too high");
+    }
+
+    /**
+     * @dev Collects all fees from active positions and sends them to the owner.
+     *      Only callable by the contract owner.
+     */
+    function collectFees() external onlyOwner nonReentrant {
+        GridPositionManagerStorage storage $ = _getStorage();
+        uint256 totalCollectedToken0 = 0;
+        uint256 totalCollectedToken1 = 0;
+
+        for (uint256 i = 0; i < $.activePositionIndexes.length; i++) {
+            uint256 index = $.activePositionIndexes[i];
+            uint256 tokenId = $.positions[index].tokenId;
+
+            // Collect fees from the position
+            (uint256 amount0Collected, uint256 amount1Collected) = $.positionManager.collect(
+                INonfungiblePositionManager.CollectParams({
+                    tokenId: tokenId,
+                    recipient: address(this),
+                    amount0Max: type(uint128).max,
+                    amount1Max: type(uint128).max
+                })
+            );
+
+            totalCollectedToken0 = totalCollectedToken0.add(amount0Collected);
+            totalCollectedToken1 = totalCollectedToken1.add(amount1Collected);
+        }
+
+        // Transfer collected fees to the owner
+        if (totalCollectedToken0 > 0) {
+            TransferHelper.safeTransfer($.pool.token0(), msg.sender, totalCollectedToken0);
+        }
+        if (totalCollectedToken1 > 0) {
+            TransferHelper.safeTransfer($.pool.token1(), msg.sender, totalCollectedToken1);
+        }
+
+        emit FeesCollected(msg.sender, totalCollectedToken0, totalCollectedToken1);
     }
 }

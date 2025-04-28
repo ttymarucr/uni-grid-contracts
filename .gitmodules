@@ -16,3 +16,7 @@
 [submodule "lib/openzeppelin-contracts-upgradeable@v3.4.1-solc-0.7-2"]
 	path = lib/openzeppelin-contracts-upgradeable@v3.4.1-solc-0.7-2
 	url = https://github.com/OpenZeppelin/openzeppelin-contracts-upgradeable
+[submodule "lib/prb-math"]
+	path = lib/prb-math
+	url = https://github.com/PaulRBerg/prb-math
+	branch = release-v4

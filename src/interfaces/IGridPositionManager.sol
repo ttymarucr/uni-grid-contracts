@@ -33,6 +33,15 @@ interface IGridPositionManager {
         SELL
     }
 
+    enum DistributionType {
+        FLAT,
+        CURVED,
+        LINEAR,
+        SIGMOID,
+        FIBONACCI,
+        LOGARITHMIC
+    }
+
     // Events
     /**
      * @dev Emitted when liquidity is deposited.
@@ -57,6 +66,14 @@ interface IGridPositionManager {
      * @param accumulated1Fees Total token1 fees compounded.
      */
     event Compound(address indexed owner, uint256 accumulated0Fees, uint256 accumulated1Fees);
+
+    /**
+     * @dev Emitted when fees are collected from active positions.
+     * @param owner The address of the owner who collected the fees.
+     * @param amount0 The amount of token0 collected.
+     * @param amount1 The amount of token1 collected.
+     */
+    event FeesCollected(address indexed owner, uint256 amount0, uint256 amount1);
 
     event GridStepUpdated(uint256 newGridStep);
     event GridQuantityUpdated(uint256 newGridQuantity);
@@ -92,8 +109,9 @@ interface IGridPositionManager {
      * @param token1Amount Amount of token1 to deposit.
      * @param slippage Maximum allowable slippage for adding liquidity (in basis points, e.g., 100 = 1%).
      * @param gridType The type of grid (NEUTRAL, BUY, SELL).
+     * @param distributionType The type of liquidity distribution (FLAT, CURVED, LINEAR, SIGMOID, FIBONACCI, LOGARITHMIC).
      */
-    function deposit(uint256 token0Amount, uint256 token1Amount, uint256 slippage, GridType gridType) external;
+    function deposit(uint256 token0Amount, uint256 token1Amount, uint256 slippage, GridType gridType, DistributionType distributionType) external;
 
     /**
      * @dev Withdraws all liquidity from active positions.
@@ -105,15 +123,17 @@ interface IGridPositionManager {
      * @dev Compounds collected fees into liquidity for active positions.
      * @param slippage Maximum allowable slippage for adding liquidity (in basis points, e.g., 100 = 1%).
      * @param gridType The type of grid (NEUTRAL, BUY, SELL).
+     * @param distributionType The type of liquidity distribution (FLAT, CURVED, LINEAR, SIGMOID, FIBONACCI, LOGARITHMIC).
      */
-    function compound(uint256 slippage, GridType gridType) external;
+    function compound(uint256 slippage, GridType gridType, DistributionType distributionType) external;
 
     /**
      * @dev Sweeps positions outside the price range and redeposits the collected tokens.
      * @param slippage Maximum allowable slippage for adding liquidity (in basis points, e.g., 100 = 1%).
      * @param gridType The type of grid (NEUTRAL, BUY, SELL).
+     * @param distributionType The type of liquidity distribution (FLAT, CURVED, LINEAR, SIGMOID, FIBONACCI, LOGARITHMIC).
      */
-    function sweep(uint256 slippage, GridType gridType) external;
+    function sweep(uint256 slippage, GridType gridType, DistributionType distributionType) external;
 
     /**
      * @dev Closes all positions by burning them. Can only be called if activePositionIndexes.length is zero.
@@ -121,6 +141,12 @@ interface IGridPositionManager {
      *      Only callable by the contract owner.
      */
     function close() external;
+
+    /**
+     * @dev Collects all fees from active positions and sends them to the owner.
+     *      Only callable by the contract owner.
+     */
+    function collectFees() external;
 
     /**
      * @dev Sets the grid step size.

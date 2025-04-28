@@ -1,66 +1,49 @@
-## Foundry
+# Uniswap V3 Grid Strategy
 
-**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
+## Overview
 
-Foundry consists of:
+This repository provides a set of smart contracts and tools designed to implement a grid trading strategy on Uniswap V3. Grid trading is a systematic trading approach that places buy and sell orders at predefined price intervals, enabling automated and efficient liquidity management.
 
--   **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
--   **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
--   **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
--   **Chisel**: Fast, utilitarian, and verbose solidity REPL.
+## Purpose
 
-## Documentation
+The purpose of this project is to leverage Uniswap V3's concentrated liquidity model to implement a grid trading strategy. By utilizing the flexibility of Uniswap V3, these contracts allow users to optimize their liquidity positions and capture profits from price fluctuations within a specified range.
 
-https://book.getfoundry.sh/
+## Features
 
-## Usage
+- **Automated Liquidity Management**: Deploy and manage liquidity positions across multiple price ranges.
+- **Profit Capture**: Automatically execute buy and sell orders as prices move within the grid.
+- **Customizable Parameters**: Define grid intervals, price ranges, and liquidity amounts to suit your strategy.
+- **Gas Optimization**: Efficiently manage transactions to minimize gas costs.
 
-### Build
+## Use Cases
 
-```shell
-$ forge build
-```
+1. **Passive Income Generation**: Earn fees by providing liquidity within a grid structure.
+2. **Market Making**: Facilitate trading by maintaining liquidity across a range of prices.
+3. **Hedging Strategies**: Use grid trading to hedge against price volatility.
 
-### Test
+## Getting Started
 
-```shell
-$ forge test
-```
+To use or contribute to this project, follow these steps:
 
-### Format
+1. Clone the repository:
+    ```bash
+    git clone https://github.com/your-repo/uni-grid-contracts.git
+    ```
+2. Install dependencies:
+    ```bash
+    npm install
+    ```
+3. Configure your environment by setting up the required variables in a `.env` file.
+4. Deploy the smart contracts to your preferred blockchain network:
+    ```bash
+    npx hardhat deploy --network <network-name>
+    ```
+5. Interact with the contracts using the provided scripts or integrate them into your application.
 
-```shell
-$ forge fmt
-```
+## Contributing
 
-### Gas Snapshots
+Contributions are welcome! Please submit issues or pull requests to help improve the project. For major changes, please open an issue first to discuss your ideas.
 
-```shell
-$ forge snapshot
-```
+## License
 
-### Anvil
-
-```shell
-$ anvil
-```
-
-### Deploy
-
-```shell
-$ forge script script/DeployGridPositionManager.s.sol --broadcast --sender 0x737284cFc66fd5989F2AC866989d70Ae134227cB -i 1 --verify 
-```
-
-### Cast
-
-```shell
-$ cast <subcommand>
-```
-
-### Help
-
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
-```
+This project is licensed under the [MIT License](LICENSE).
