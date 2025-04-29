@@ -10,7 +10,6 @@ import "@uniswap/v3-core/contracts/libraries/TickMath.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@uniswap/v3-periphery/contracts/libraries/LiquidityAmounts.sol";
 import "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol";
-import { UD60x18 } from "@prb/math/src/UD60x18.sol";
 import "./proxy/utils/Initializable.sol";
 import "./access/OwnableUpgradeable.sol";
 import "./security/ReentrancyGuardUpgradeable.sol";
@@ -117,152 +116,6 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
     }
 
     /**
-     * @dev Distributes liquidity across grid positions based on the chosen distribution type.
-     * @param token0Amount Amount of token0 to distribute.
-     * @param token1Amount Amount of token1 to distribute.
-     * @param slippage Maximum allowable slippage for adding liquidity.
-     * @param gridType The type of grid (NEUTRAL, BUY, SELL).
-     * @param distributionType The type of liquidity distribution.
-     */
-    function _distributeLiquidity(
-        uint256 token0Amount,
-        uint256 token1Amount,
-        uint256 slippage,
-        GridType gridType,
-        DistributionType distributionType
-    ) internal {
-        GridPositionManagerStorage storage $ = _getStorage();
-        (, int24 currentTick,,,,,) = $.pool.slot0();
-        int24[] memory gridTicks = _calculateGridTicks(currentTick, gridType);
-
-        uint256 gridLength = gridTicks.length - 1;
-        uint256[] memory distributionWeights = _getDistributionWeights(gridLength, distributionType);
-        uint256 positionsLength = gridType == GridType.NEUTRAL ? gridLength.div(2) : gridLength;
-
-        for (uint256 i = 0; i < gridLength; i++) {
-            uint256 weight = distributionWeights[i];
-            uint256 token0Share = token0Amount.mul(weight).div(10000);
-            uint256 token1Share = token1Amount.mul(weight).div(10000);
-
-            _handlePosition(gridTicks[i], gridTicks[i + 1], currentTick, positionsLength - (i % positionsLength), slippage, token0Share, token1Share);
-        }
-    }
-
-    /**
-     * @dev Returns the distribution weights for the specified distribution type.
-     * @param gridLength The number of grid intervals.
-     * @param distributionType The type of liquidity distribution.
-     * @return An array of distribution weights.
-     */
-    function _getDistributionWeights(uint256 gridLength, DistributionType distributionType)
-        internal
-        pure
-        returns (uint256[] memory)
-    {
-        uint256[] memory weights = new uint256[](gridLength);
-
-        if (distributionType == DistributionType.FLAT) {
-            for (uint256 i = 0; i < gridLength; i++) {
-                weights[i] = 10000 / gridLength; // Equal distribution
-            }
-        } else if (distributionType == DistributionType.CURVED) {
-            for (uint256 i = 0; i < gridLength; i++) {
-                weights[i] = (i + 1) * 10000 / (gridLength * (gridLength + 1) / 2); // Triangular distribution
-            }
-        } else if (distributionType == DistributionType.LINEAR) {
-            for (uint256 i = 0; i < gridLength; i++) {
-                weights[i] = (gridLength - i) * 10000 / (gridLength * (gridLength + 1) / 2); // Linear decay
-            }
-        } else if (distributionType == DistributionType.SIGMOID) {
-            for (uint256 i = 0; i < gridLength; i++) {
-                // Use PRBMath's exp function for the sigmoid curve
-                uint256 x = UD60x18.div(
-                    int256(i * 2e18 - gridLength * 1e18), // Scale input to 18 decimals
-                    int256(gridLength * 1e18)
-                );
-                weights[i] = uint256(10000 / (1 + UD60x18.exp(-x)));
-            }
-        } else if (distributionType == DistributionType.FIBONACCI) {
-            uint256[] memory fib = new uint256[](gridLength);
-            fib[0] = 1;
-            fib[1] = 1;
-            for (uint256 i = 2; i < gridLength; i++) {
-                fib[i] = fib[i - 1] + fib[i - 2];
-            }
-            uint256 total = 0;
-            for (uint256 i = 0; i < gridLength; i++) {
-                total += fib[i];
-            }
-            for (uint256 i = 0; i < gridLength; i++) {
-                weights[i] = fib[i] * 10000 / total;
-            }
-        } else if (distributionType == DistributionType.LOGARITHMIC) {
-            for (uint256 i = 0; i < gridLength; i++) {
-                // Use PRBMath's ln function for logarithmic decay
-                weights[i] = uint256(10000 / (1 + UD60x18.ln(i + 1)));
-            }
-        }
-
-        return weights;
-    }
-
-    /**
-     * @dev Handles the logic for calculating desired amounts and managing positions.
-     * @param tickLower The lower tick of the grid.
-     * @param tickUpper The upper tick of the grid.
-     * @param currentTick The current tick of the pool.
-     * @param positionsLength The number of positions to be created.
-     * @param slippage Maximum allowable slippage for adding liquidity (in basis points).
-     * @param token0Share The share of token0 to allocate to this position.
-     * @param token1Share The share of token1 to allocate to this position.
-     */
-    function _handlePosition(
-        int24 tickLower,
-        int24 tickUpper,
-        int24 currentTick,
-        uint256 positionsLength,
-        uint256 slippage,
-        uint256 token0Share,
-        uint256 token1Share
-    ) internal {
-        GridPositionManagerStorage storage $ = _getStorage();
-        require(tickLower < tickUpper, "E07: Invalid tick range");
-        require(
-            tickLower % $.pool.tickSpacing() == 0 && tickUpper % $.pool.tickSpacing() == 0,
-            "E08: Ticks must align with spacing"
-        );
-
-        uint256 token0Balance = IERC20Metadata($.pool.token0()).balanceOf(address(this));
-        uint256 token1Balance = IERC20Metadata($.pool.token1()).balanceOf(address(this));
-        uint256 amount0Desired = token0Share;
-        uint256 amount1Desired = token1Share;
-
-        if (tickUpper < currentTick) {
-            amount1Desired = token1Share.div(positionsLength);
-            amount0Desired = 0;
-        } else if (tickLower > currentTick) {
-            amount0Desired = token0Share.div(positionsLength);
-            amount1Desired = 0;
-        }
-
-        // Calculate slippage-adjusted amounts
-        uint256 amount0Slippage = amount0Desired.mul(uint256(10000).sub(slippage)).div(10000);
-        uint256 amount1Slippage = amount1Desired.mul(uint256(10000).sub(slippage)).div(10000);
-
-        // Check if the position already exists
-        (uint256 existingTokenId, uint256 index) = _getPositionFromTicks(tickLower, tickUpper);
-        if (existingTokenId > 0) {
-            _addLiquidityToExistingPosition(
-                existingTokenId, index, amount0Desired, amount1Desired, amount0Slippage, amount1Slippage
-            );
-            return;
-        }
-
-        // Mint a new position
-        _mintNewPosition(tickLower, tickUpper, amount0Desired, amount1Desired, amount0Slippage, amount1Slippage);
-    }
-
-    /**
      * @dev Withdraws all liquidity from active positions.
      *      Only callable by the contract owner.
      */
@@ -314,7 +167,11 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
      * @param gridType The type of grid (NEUTRAL, BUY, SELL).
      * @param distributionType The type of liquidity distribution (FLAT, CURVED, LINEAR, SIGMOID, FIBONACCI, LOGARITHMIC).
      */
-    function compound(uint256 slippage, GridType gridType, DistributionType distributionType) external override nonReentrant {
+    function compound(uint256 slippage, GridType gridType, DistributionType distributionType)
+        external
+        override
+        nonReentrant
+    {
         require(slippage <= 500, "E06: Slippage must be less than or equal to 500 (5%)");
 
         GridPositionManagerStorage storage $ = _getStorage();
@@ -410,6 +267,44 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
     }
 
     /**
+     * @dev Collects all fees from active positions and sends them to the owner.
+     *      Only callable by the contract owner.
+     */
+    function collectFees() external override onlyOwner nonReentrant {
+        GridPositionManagerStorage storage $ = _getStorage();
+        uint256 totalCollectedToken0 = 0;
+        uint256 totalCollectedToken1 = 0;
+
+        for (uint256 i = 0; i < $.activePositionIndexes.length; i++) {
+            uint256 index = $.activePositionIndexes[i];
+            uint256 tokenId = $.positions[index].tokenId;
+
+            // Collect fees from the position
+            (uint256 amount0Collected, uint256 amount1Collected) = $.positionManager.collect(
+                INonfungiblePositionManager.CollectParams({
+                    tokenId: tokenId,
+                    recipient: address(this),
+                    amount0Max: type(uint128).max,
+                    amount1Max: type(uint128).max
+                })
+            );
+
+            totalCollectedToken0 = totalCollectedToken0.add(amount0Collected);
+            totalCollectedToken1 = totalCollectedToken1.add(amount1Collected);
+        }
+
+        // Transfer collected fees to the owner
+        if (totalCollectedToken0 > 0) {
+            TransferHelper.safeTransfer($.pool.token0(), msg.sender, totalCollectedToken0);
+        }
+        if (totalCollectedToken1 > 0) {
+            TransferHelper.safeTransfer($.pool.token1(), msg.sender, totalCollectedToken1);
+        }
+
+        emit FeesCollected(msg.sender, totalCollectedToken0, totalCollectedToken1);
+    }
+
+    /**
      * @dev Closes all positions by burning them. Can only be called if activePositionIndexes.length is zero.
      *      Assumes all positions in the positions array have zero liquidity.
      *      Only callable by the contract owner.
@@ -482,6 +377,139 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
     function getActivePositionIndexes() external view override returns (uint256[] memory) {
         GridPositionManagerStorage storage $ = _getStorage();
         return $.activePositionIndexes;
+    }
+
+    /**
+     * @dev Distributes liquidity across grid positions based on the chosen distribution type.
+     * @param token0Amount Amount of token0 to distribute.
+     * @param token1Amount Amount of token1 to distribute.
+     * @param slippage Maximum allowable slippage for adding liquidity.
+     * @param gridType The type of grid (NEUTRAL, BUY, SELL).
+     * @param distributionType The type of liquidity distribution.
+     */
+    function _distributeLiquidity(
+        uint256 token0Amount,
+        uint256 token1Amount,
+        uint256 slippage,
+        GridType gridType,
+        DistributionType distributionType
+    ) internal {
+        int24 currentTick = _getCurrentTick();
+        int24[] memory gridTicks = _calculateGridTicks(currentTick, gridType);
+
+        uint256 gridLength = gridTicks.length - 1;
+        uint256[] memory distributionWeights = _getDistributionWeights(gridLength, distributionType);
+        uint256 positionsLength = gridType == GridType.NEUTRAL ? gridLength.div(2) : gridLength;
+
+        for (uint256 i = 0; i < gridLength; i++) {
+            PositionParams memory params = PositionParams({
+                tickLower: gridTicks[i],
+                tickUpper: gridTicks[i + 1],
+                currentTick: currentTick,
+                positionsLength: positionsLength - (i % positionsLength),
+                slippage: slippage,
+                token0Amount: token0Amount,
+                token1Amount: token1Amount,
+                weight: distributionWeights[i]
+            });
+            _handlePosition(params);
+        }
+    }
+
+    /**
+     * @dev Returns the distribution weights for the specified distribution type.
+     * @param gridLength The number of grid intervals.
+     * @param distributionType The type of liquidity distribution.
+     * @return An array of distribution weights.
+     */
+    function _getDistributionWeights(uint256 gridLength, DistributionType distributionType)
+        public
+        pure
+        returns (uint256[] memory)
+    {
+        uint256[] memory weights = new uint256[](gridLength);
+
+        if (distributionType == DistributionType.FLAT) {
+            // Flat distribution: All grid intervals receive equal weight.
+            for (uint256 i = 0; i < gridLength; i++) {
+                weights[i] = 10000 / gridLength; // Equal distribution
+            }
+        } else if (distributionType == DistributionType.LINEAR) {
+            // Curved distribution: Weights increase linearly from the first to the last interval.
+            // This creates a triangular distribution where later intervals receive more weight.
+            for (uint256 i = 0; i < gridLength; i++) {
+                weights[i] = (i + 1) * 10000 / (gridLength * (gridLength + 1) / 2); // Triangular distribution
+            }
+        } else if (distributionType == DistributionType.REVERSE_LINEAR) {
+            // Linear distribution: Weights decrease linearly from the first to the last interval.
+            // This creates a linear decay where earlier intervals receive more weight.
+            for (uint256 i = 0; i < gridLength; i++) {
+                weights[i] = (gridLength - i) * 10000 / (gridLength * (gridLength + 1) / 2); // Linear decay
+            }
+        } else if (distributionType == DistributionType.SIGMOID) {
+            // Sigmoid distribution: Not implemented. Typically, this would create an S-shaped curve.
+            revert("E11: Sigmoid distribution not implemented");
+        } else if (distributionType == DistributionType.FIBONACCI) {
+            // Fibonacci distribution: Weights are based on the Fibonacci sequence.
+            // Each interval's weight is proportional to its Fibonacci number.
+            uint256[] memory fib = new uint256[](gridLength);
+            fib[0] = 1;
+            fib[1] = 1;
+            for (uint256 i = 2; i < gridLength; i++) {
+                fib[i] = fib[i - 1] + fib[i - 2];
+            }
+            uint256 total = 0;
+            for (uint256 i = 0; i < gridLength; i++) {
+                total += fib[i];
+            }
+            for (uint256 i = 0; i < gridLength; i++) {
+                weights[i] = fib[i] * 10000 / total;
+            }
+        } else if (distributionType == DistributionType.LOGARITHMIC) {
+            // Logarithmic distribution: Not implemented. Typically, this would create a logarithmic curve.
+            revert("E11: Logarithmic distribution not implemented");
+        }
+
+        return weights;
+    }
+
+    /**
+     * @dev Handles the position creation and liquidity addition.
+     * @param params The parameters for the position.
+     */
+    function _handlePosition(PositionParams memory params) internal {
+        GridPositionManagerStorage storage $ = _getStorage();
+        require(params.tickLower < params.tickUpper, "E07: Invalid tick range");
+        require(
+            params.tickLower % $.pool.tickSpacing() == 0 && params.tickUpper % $.pool.tickSpacing() == 0,
+            "E08: Ticks must align with spacing"
+        );
+
+        uint256 amount0Desired = params.token0Amount.mul(params.weight).div(10000);
+        uint256 amount1Desired = params.token1Amount.mul(params.weight).div(10000);
+
+        if (params.tickUpper < params.currentTick) {
+            amount1Desired = amount1Desired.div(params.positionsLength);
+            amount0Desired = 0;
+        } else if (params.tickLower > params.currentTick) {
+            amount0Desired = amount0Desired.div(params.positionsLength);
+            amount1Desired = 0;
+        }
+
+        uint256 amount0Slippage = amount0Desired.mul(uint256(10000).sub(params.slippage)).div(10000);
+        uint256 amount1Slippage = amount1Desired.mul(uint256(10000).sub(params.slippage)).div(10000);
+
+        (uint256 existingTokenId, uint256 index) = _getPositionFromTicks(params.tickLower, params.tickUpper);
+        if (existingTokenId > 0) {
+            _addLiquidityToExistingPosition(
+                existingTokenId, index, amount0Desired, amount1Desired, amount0Slippage, amount1Slippage
+            );
+            return;
+        }
+
+        _mintNewPosition(
+            params.tickLower, params.tickUpper, amount0Desired, amount1Desired, amount0Slippage, amount1Slippage
+        );
     }
 
     /**
@@ -639,21 +667,6 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
             }
         }
         return (0, 0);
-    }
-
-    /**
-     * @dev Calculates the square root of a number.
-     * @param x The number to calculate the square root of.
-     * @return The square root of the number.
-     */
-    function sqrt(uint256 x) internal pure returns (uint256) {
-        uint256 z = (x + 1) / 2;
-        uint256 y = x;
-        while (z < y) {
-            y = z;
-            z = (x / z + z) / 2;
-        }
-        return y;
     }
 
     /**
@@ -850,41 +863,9 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
         require(deviation <= int24(maxDeviation), "E14: Price deviation too high");
     }
 
-    /**
-     * @dev Collects all fees from active positions and sends them to the owner.
-     *      Only callable by the contract owner.
-     */
-    function collectFees() external onlyOwner nonReentrant {
+    function _getCurrentTick() internal view returns (int24) {
         GridPositionManagerStorage storage $ = _getStorage();
-        uint256 totalCollectedToken0 = 0;
-        uint256 totalCollectedToken1 = 0;
-
-        for (uint256 i = 0; i < $.activePositionIndexes.length; i++) {
-            uint256 index = $.activePositionIndexes[i];
-            uint256 tokenId = $.positions[index].tokenId;
-
-            // Collect fees from the position
-            (uint256 amount0Collected, uint256 amount1Collected) = $.positionManager.collect(
-                INonfungiblePositionManager.CollectParams({
-                    tokenId: tokenId,
-                    recipient: address(this),
-                    amount0Max: type(uint128).max,
-                    amount1Max: type(uint128).max
-                })
-            );
-
-            totalCollectedToken0 = totalCollectedToken0.add(amount0Collected);
-            totalCollectedToken1 = totalCollectedToken1.add(amount1Collected);
-        }
-
-        // Transfer collected fees to the owner
-        if (totalCollectedToken0 > 0) {
-            TransferHelper.safeTransfer($.pool.token0(), msg.sender, totalCollectedToken0);
-        }
-        if (totalCollectedToken1 > 0) {
-            TransferHelper.safeTransfer($.pool.token1(), msg.sender, totalCollectedToken1);
-        }
-
-        emit FeesCollected(msg.sender, totalCollectedToken0, totalCollectedToken1);
+        (, int24 currentTick,,,,,) = $.pool.slot0();
+        return currentTick;
     }
 }

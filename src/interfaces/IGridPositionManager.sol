@@ -11,6 +11,17 @@ interface IGridPositionManager {
         uint256 index; // Index of the position in the positions array
     }
 
+    struct PositionParams {
+        int24 tickLower; // Lower tick of the position
+        int24 tickUpper; // Upper tick of the position
+        int24 currentTick; // Current tick of the pool
+        uint256 positionsLength; // Total number of positions
+        uint256 slippage; // Slippage for adding liquidity (in basis points, e.g., 100 = 1%)
+        uint256 token0Amount; // Amount of token0 to deposit
+        uint256 token1Amount; // Amount of token1 to deposit
+        uint256 weight; // Weight of the position in the grid based on the distribution type
+    }
+
     struct GridInfo {
         address pool; // Address of the Uniswap V3 pool
         address positionManager; // Address of the Uniswap V3 position manager
@@ -35,8 +46,8 @@ interface IGridPositionManager {
 
     enum DistributionType {
         FLAT,
-        CURVED,
         LINEAR,
+        REVERSE_LINEAR,
         SIGMOID,
         FIBONACCI,
         LOGARITHMIC
@@ -111,7 +122,13 @@ interface IGridPositionManager {
      * @param gridType The type of grid (NEUTRAL, BUY, SELL).
      * @param distributionType The type of liquidity distribution (FLAT, CURVED, LINEAR, SIGMOID, FIBONACCI, LOGARITHMIC).
      */
-    function deposit(uint256 token0Amount, uint256 token1Amount, uint256 slippage, GridType gridType, DistributionType distributionType) external;
+    function deposit(
+        uint256 token0Amount,
+        uint256 token1Amount,
+        uint256 slippage,
+        GridType gridType,
+        DistributionType distributionType
+    ) external;
 
     /**
      * @dev Withdraws all liquidity from active positions.
