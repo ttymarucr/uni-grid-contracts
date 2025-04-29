@@ -37,7 +37,7 @@ library DistributionWeights {
             }
         } else if (distributionType == DistributionType.SIGMOID) {
             // Sigmoid distribution: Not implemented. Typically, this would create an S-shaped curve.
-            revert("E11: Sigmoid distribution not implemented");
+            revert("E11"); // Sigmoid distribution not implemented
         } else if (distributionType == DistributionType.FIBONACCI) {
             // Fibonacci distribution: Weights are based on the Fibonacci sequence.
             // Each interval's weight is proportional to its Fibonacci number.
@@ -56,7 +56,7 @@ library DistributionWeights {
             }
         } else if (distributionType == DistributionType.LOGARITHMIC) {
             // Logarithmic distribution: Not implemented. Typically, this would create a logarithmic curve.
-            revert("E11: Logarithmic distribution not implemented");
+            revert("E11"); // Logarithmic distribution not implemented
         }
 
         return weights;

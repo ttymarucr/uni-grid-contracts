@@ -3,6 +3,7 @@ pragma abicoder v2;
 pragma solidity ^0.7.0;
 
 import "../libraries/DistributionWeights.sol";
+import "../libraries/GridTickCalculator.sol";
 
 interface IGridPositionManager {
     struct Position {
@@ -38,12 +39,6 @@ interface IGridPositionManager {
         string token1Symbol; // Symbol for token1
         address token0; // Address of token0
         address token1; // Address of token1
-    }
-
-    enum GridType {
-        NEUTRAL,
-        BUY,
-        SELL
     }
 
     // Events
@@ -119,7 +114,7 @@ interface IGridPositionManager {
         uint256 token0Amount,
         uint256 token1Amount,
         uint256 slippage,
-        GridType gridType,
+        GridTickCalculator.GridType gridType,
         DistributionWeights.DistributionType distributionType
     ) external;
 
@@ -135,8 +130,11 @@ interface IGridPositionManager {
      * @param gridType The type of grid (NEUTRAL, BUY, SELL).
      * @param distributionType The type of liquidity distribution (FLAT, CURVED, LINEAR, SIGMOID, FIBONACCI, LOGARITHMIC).
      */
-    function compound(uint256 slippage, GridType gridType, DistributionWeights.DistributionType distributionType)
-        external;
+    function compound(
+        uint256 slippage,
+        GridTickCalculator.GridType gridType,
+        DistributionWeights.DistributionType distributionType
+    ) external;
 
     /**
      * @dev Sweeps positions outside the price range and redeposits the collected tokens.
@@ -144,8 +142,11 @@ interface IGridPositionManager {
      * @param gridType The type of grid (NEUTRAL, BUY, SELL).
      * @param distributionType The type of liquidity distribution (FLAT, CURVED, LINEAR, SIGMOID, FIBONACCI, LOGARITHMIC).
      */
-    function sweep(uint256 slippage, GridType gridType, DistributionWeights.DistributionType distributionType)
-        external;
+    function sweep(
+        uint256 slippage,
+        GridTickCalculator.GridType gridType,
+        DistributionWeights.DistributionType distributionType
+    ) external;
 
     /**
      * @dev Closes all positions by burning them. Can only be called if activePositionIndexes.length is zero.
