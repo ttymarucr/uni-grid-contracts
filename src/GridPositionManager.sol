@@ -21,6 +21,7 @@ import "./libraries/GridTickCalculator.sol";
  * @dev Manages grid-based liquidity positions on Uniswap V3.
  *      Allows depositing, withdrawing, compounding, and sweeping liquidity positions.
  */
+
 contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGuardUpgradeable, IGridPositionManager {
     using SafeMath for uint256;
     /// @custom:storage-location erc7201:tty0.unigrids.GridPositionManager
@@ -439,9 +440,13 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
             amount0Desired = amount0Desired.div(params.positionsLength);
             amount1Desired = 0;
         }
-
         uint256 amount0Slippage = amount0Desired.mul(uint256(10000).sub(params.slippage)).div(10000);
         uint256 amount1Slippage = amount1Desired.mul(uint256(10000).sub(params.slippage)).div(10000);
+        if (amount0Desired > 0 && amount1Desired > 0) {
+            // // both tokens are needed
+            amount0Slippage = 0;
+            amount1Slippage = 0;
+        }
 
         (uint256 existingTokenId, uint256 index) = _getPositionFromTicks(params.tickLower, params.tickUpper);
         if (existingTokenId > 0) {
@@ -539,6 +544,7 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
         // Add the new position to the active positions list
         $.activePositionIndexes.push($.positions.length - 1); // Use positions.length - 1 directly
         emit Deposit(msg.sender, amount0, amount1);
+        assert(amount0 > 0 || amount1 > 0); // Ensure at least one token is deposited
     }
 
     /**

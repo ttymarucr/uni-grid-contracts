@@ -6,7 +6,6 @@
   "private": false,
   "scripts": {
     "test": "npx hardhat test --parallel",
-    "test:tenderly": "TENDERLY_AUTOMATIC_VERIFICATION=true npx hardhat test --network virtual_base",
     "build": "npx hardhat compile",
     "coverage": "SOLIDITY_COVERAGE=true npx hardhat coverage",
     "coverage:report": "npx hardhat coverage --reporter text-summary",

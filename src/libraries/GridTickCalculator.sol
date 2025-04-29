@@ -57,10 +57,6 @@ library GridTickCalculator {
         uint256 index = 0;
 
         for (uint256 i = 0; i < gridCount; i++) {
-            if (currentTick < targetTick && currentTick + tickSpacing > targetTick) {
-                currentTick += tickSpacing;
-                continue;
-            }
             gridTicks[index] = currentTick;
             currentTick += tickSpacing;
             index++;

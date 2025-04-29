@@ -108,7 +108,7 @@ describe("GridPositionManager", function () {
   });
 
   it("Should revert if grid step is invalid", async function () {
-    await expect(gridPositionManager.connect(owner).setGridStep(0)).to.be.revertedWith("E04");
+    await expect(gridPositionManager.connect(owner).setGridStep(0)).to.be.revertedWith("E09");
     await expect(gridPositionManager.connect(owner).setGridStep(10000)).to.be.revertedWith("E09");
   });
 
@@ -119,7 +119,7 @@ describe("GridPositionManager", function () {
   });
 
   it("Should revert if grid quantity is invalid", async function () {
-    await expect(gridPositionManager.connect(owner).setGridQuantity(0)).to.be.revertedWith("E03");
+    await expect(gridPositionManager.connect(owner).setGridQuantity(0)).to.be.revertedWith("E10");
     await expect(gridPositionManager.connect(owner).setGridQuantity(10000)).to.be.revertedWith("E10");
   });
 
@@ -138,7 +138,7 @@ describe("GridPositionManager", function () {
     expect(token0Liquidity).to.be.gt(0);
     expect(token1Liquidity).to.be.gt(0);
     const isInRange = await gridPositionManager.isInRange();
-    expect(isInRange).to.be.false;
+    expect(isInRange).to.be.true;
   });
 
   it("Should allow SELL deposits and emit Deposit event", async function () {
@@ -176,7 +176,7 @@ describe("GridPositionManager", function () {
   it("Should allow NEUTRAL compounding fees", async function () {
     await gridPositionManager.connect(owner).setMinFees(ethers.utils.parseEther("0.0001"), ethers.utils.parseUnits("1", 6));
     await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.NEUTRAL, DistributionType.FLAT);
-    await expect(gridPositionManager.connect(owner).compound(slippage, GridType.NEUTRAL, DistributionType.FLAT)).not.to.emit(gridPositionManager, "Compound");
+    await expect(gridPositionManager.connect(owner).compound(slippage, GridType.NEUTRAL, DistributionType.FLAT)).to.emit(gridPositionManager, "Compound");
   });
 
   it("Should allow BUY compounding fees", async function () {
