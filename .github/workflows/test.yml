@@ -39,5 +39,5 @@ jobs:
 
       - name: Run tests
         run: |
-          npm test
+          forge test
         id: test

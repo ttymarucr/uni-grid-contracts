@@ -14,6 +14,7 @@ import "./proxy/utils/Initializable.sol";
 import "./access/OwnableUpgradeable.sol";
 import "./security/ReentrancyGuardUpgradeable.sol";
 import "./interfaces/IGridPositionManager.sol";
+import "./libraries/GridTickCalculator.sol";
 
 /**
  * @title GridPositionManager
@@ -56,10 +57,10 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
         public
         initializer
     {
-        require(_pool != address(0), "E01: Invalid pool address");
-        require(_positionManager != address(0), "E02: Invalid position manager address");
-        require(_gridQuantity > 0, "E03: Grid quantity must be greater than 0");
-        require(_gridStep > 0, "E04: Grid step must be greater than 0");
+        require(_pool != address(0), "E01");
+        require(_positionManager != address(0), "E02");
+        require(_gridQuantity > 0, "E03");
+        require(_gridStep > 0, "E04");
         __Ownable_init();
         __ReentrancyGuard_init();
 
@@ -88,18 +89,17 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
         uint256 token0Amount,
         uint256 token1Amount,
         uint256 slippage,
-        GridType gridType,
+        GridTickCalculator.GridType gridType,
         DistributionWeights.DistributionType distributionType
     ) public override nonReentrant onlyOwner {
-        require(slippage <= 500, "E06: Slippage must be less than or equal to 500 (5%)");
-
-        if (gridType == GridType.NEUTRAL) {
-            require(token0Amount > 0 && token1Amount > 0, "E05: Token amounts must be greater than 0");
-        } else if (gridType == GridType.BUY) {
-            require(token1Amount > 0, "E14: Token1 amount must be zero for BUY grid type");
-        } else if (gridType == GridType.SELL) {
-            require(token0Amount > 0, "E14: Token0 amount must be zero for SELL grid type");
+        if (gridType == GridTickCalculator.GridType.NEUTRAL) {
+            require(token0Amount > 0 && token1Amount > 0, "E05");
+        } else if (gridType == GridTickCalculator.GridType.BUY) {
+            require(token1Amount > 0, "E14");
+        } else if (gridType == GridTickCalculator.GridType.SELL) {
+            require(token0Amount > 0, "E14");
         }
+        require(slippage <= 500, "E06");
 
         GridPositionManagerStorage storage $ = _getStorage();
 
@@ -167,11 +167,11 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
      * @param gridType The type of grid (NEUTRAL, BUY, SELL).
      * @param distributionType The type of liquidity distribution (FLAT, CURVED, LINEAR, SIGMOID, FIBONACCI, LOGARITHMIC).
      */
-    function compound(uint256 slippage, GridType gridType, DistributionWeights.DistributionType distributionType)
-        external
-        override
-        nonReentrant
-    {
+    function compound(
+        uint256 slippage,
+        GridTickCalculator.GridType gridType,
+        DistributionWeights.DistributionType distributionType
+    ) external override nonReentrant {
         require(slippage <= 500, "E06: Slippage must be less than or equal to 500 (5%)");
 
         GridPositionManagerStorage storage $ = _getStorage();
@@ -209,10 +209,11 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
      * @param gridType The type of grid (NEUTRAL, BUY, SELL).
      * @param distributionType The type of liquidity distribution (FLAT, CURVED, LINEAR, SIGMOID, FIBONACCI, LOGARITHMIC).
      */
-    function sweep(uint256 slippage, GridType gridType, DistributionWeights.DistributionType distributionType)
-        external
-        override
-    {
+    function sweep(
+        uint256 slippage,
+        GridTickCalculator.GridType gridType,
+        DistributionWeights.DistributionType distributionType
+    ) external override {
         require(slippage <= 500, "E06: Slippage must be less than or equal to 500 (5%)");
         GridPositionManagerStorage storage $ = _getStorage();
         // Fetch the current pool tick
@@ -314,7 +315,7 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
      */
     function close() external override onlyOwner nonReentrant {
         GridPositionManagerStorage storage $ = _getStorage();
-        require($.activePositionIndexes.length == 0, "E12: Active positions must be zero");
+        require($.activePositionIndexes.length == 0, "E12");
 
         for (uint256 i = 0; i < $.positions.length; i++) {
             uint256 tokenId = $.positions[i].tokenId;
@@ -334,7 +335,7 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
      */
     function setGridStep(uint256 _newGridStep) external override onlyOwner {
         GridPositionManagerStorage storage $ = _getStorage();
-        require(_newGridStep > 0 && _newGridStep < 10000, "E09: Grid step must be between 1 and 9999");
+        require(_newGridStep > 0 && _newGridStep < 10000, "E09");
         $.gridStep = _newGridStep;
         emit GridStepUpdated(_newGridStep);
     }
@@ -346,7 +347,7 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
      */
     function setGridQuantity(uint256 _newGridQuantity) external override onlyOwner {
         GridPositionManagerStorage storage $ = _getStorage();
-        require(_newGridQuantity > 0 && _newGridQuantity < 10000, "E10: Grid quantity must be between 1 and 9999");
+        require(_newGridQuantity > 0 && _newGridQuantity < 10000, "E10");
         $.gridQuantity = _newGridQuantity;
         emit GridQuantityUpdated(_newGridQuantity);
     }
@@ -394,7 +395,7 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
         uint256 token0Amount,
         uint256 token1Amount,
         uint256 slippage,
-        GridType gridType,
+        GridTickCalculator.GridType gridType,
         DistributionWeights.DistributionType distributionType
     ) internal {
         int24 currentTick = _getCurrentTick();
@@ -402,7 +403,7 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
 
         uint256 gridLength = gridTicks.length - 1;
         uint256[] memory distributionWeights = DistributionWeights.getWeights(gridLength, distributionType);
-        uint256 positionsLength = gridType == GridType.NEUTRAL ? gridLength.div(2) : gridLength;
+        uint256 positionsLength = gridType == GridTickCalculator.GridType.NEUTRAL ? gridLength.div(2) : gridLength;
 
         for (uint256 i = 0; i < gridLength; i++) {
             PositionParams memory params = PositionParams({
@@ -425,11 +426,8 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
      */
     function _handlePosition(PositionParams memory params) internal {
         GridPositionManagerStorage storage $ = _getStorage();
-        require(params.tickLower < params.tickUpper, "E07: Invalid tick range");
-        require(
-            params.tickLower % $.pool.tickSpacing() == 0 && params.tickUpper % $.pool.tickSpacing() == 0,
-            "E08: Ticks must align with spacing"
-        );
+        require(params.tickLower < params.tickUpper, "E07");
+        require(params.tickLower % $.pool.tickSpacing() == 0 && params.tickUpper % $.pool.tickSpacing() == 0, "E08");
 
         uint256 amount0Desired = params.token0Amount.mul(params.weight).div(10000);
         uint256 amount1Desired = params.token1Amount.mul(params.weight).div(10000);
@@ -550,53 +548,15 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
      * @param gridType The type of grid (NEUTRAL, BUY, SELL).
      * @return An array of grid ticks.
      */
-    function _calculateGridTicks(int24 targetTick, GridType gridType) internal view returns (int24[] memory) {
+    function _calculateGridTicks(int24 targetTick, GridTickCalculator.GridType gridType)
+        internal
+        view
+        returns (int24[] memory)
+    {
         GridPositionManagerStorage storage $ = _getStorage();
-        require($.gridQuantity > 0, "E03: Grid quantity must be greater than 0");
-
-        // Fetch the tick spacing from the pool
-        int24 tickSpacing = $.pool.tickSpacing() * int24($.gridStep);
-        require(tickSpacing > 0, "E04: Grid step must be greater than 0");
-
-        int24 tickRange = int24(gridType == GridType.NEUTRAL ? $.gridQuantity / 2 : $.gridQuantity) * tickSpacing;
-
-        // Ensure the lower and upper ticks are aligned with the tick spacing
-        int24 lowerTick = targetTick - tickRange;
-        if (gridType == GridType.SELL) {
-            lowerTick = targetTick;
-        }
-        lowerTick = lowerTick - (lowerTick % tickSpacing);
-
-        int24 upperTick = targetTick + tickRange;
-        if (gridType == GridType.BUY) {
-            upperTick = targetTick;
-        }
-        upperTick = upperTick - (upperTick % tickSpacing);
-
-        uint256 gridCount = uint256((upperTick - lowerTick) / tickSpacing);
-        require(gridCount > 1, "E07: Invalid tick range");
-
-        int24[] memory gridTicks = new int24[](gridCount);
-        int24 currentTick = lowerTick;
-        uint256 index = 0;
-
-        for (uint256 i = 0; i < gridCount; i++) {
-            if (currentTick < targetTick && currentTick + tickSpacing > targetTick) {
-                // Skip the grid that overlaps with the target tick
-                currentTick += tickSpacing;
-                continue;
-            }
-            gridTicks[index] = currentTick;
-            currentTick += tickSpacing;
-            index++;
-        }
-
-        // Resize the array to exclude unused slots
-        assembly {
-            mstore(gridTicks, index)
-        }
-
-        return gridTicks;
+        return GridTickCalculator.calculateGridTicks(
+            targetTick, gridType, $.gridQuantity, $.gridStep, $.pool.tickSpacing()
+        );
     }
 
     /**
@@ -679,7 +639,7 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
 
     function getPosition(uint256 index) external view override returns (Position memory) {
         GridPositionManagerStorage storage $ = _getStorage();
-        require(index < $.positions.length, "E15: Index out of bounds");
+        require(index < $.positions.length, "E15");
         return $.positions[index];
     }
 
@@ -759,7 +719,7 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
      */
     function recoverEther() external onlyOwner nonReentrant {
         uint256 balance = address(this).balance;
-        require(balance > 0, "E13: No Ether to recover");
+        require(balance > 0, "E13");
         (bool success,) = msg.sender.call{value: balance}("");
         require(success, "Ether transfer failed");
     }
@@ -770,7 +730,7 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
      * @return averageTick The average tick over the specified time window.
      */
     function _getTWAP(int24 secondsAgo) internal view returns (int24 averageTick) {
-        require(secondsAgo > 0, "E11: Invalid time window");
+        require(secondsAgo > 0, "E11");
 
         GridPositionManagerStorage storage $ = _getStorage();
         // Fetch the current and historical tick data
@@ -806,7 +766,7 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
      */
     function _validatePrice(int24 currentTick, int24 twapTick, uint256 maxDeviation) internal pure {
         int24 deviation = currentTick > twapTick ? currentTick - twapTick : twapTick - currentTick;
-        require(deviation <= int24(maxDeviation), "E14: Price deviation too high");
+        require(deviation <= int24(maxDeviation), "E14");
     }
 
     function _getCurrentTick() internal view returns (int24) {

@@ -21,6 +21,24 @@ The purpose of this project is to leverage Uniswap V3's concentrated liquidity m
 2. **Market Making**: Facilitate trading by maintaining liquidity across a range of prices.
 3. **Hedging Strategies**: Use grid trading to hedge against price volatility.
 
+## Error Codes and Descriptions
+
+- **E01**: Pool address cannot be zero.
+- **E02**: Position manager address cannot be zero.
+- **E03**: Grid quantity must be greater than zero.
+- **E04**: Grid step must be greater than zero.
+- **E05**: For NEUTRAL grid type, both token0 and token1 amounts must be greater than zero.
+- **E06**: Slippage must be less than or equal to 500 basis points (5%).
+- **E07**: Invalid grid configuration. Ensure `tickLower` is less than `tickUpper` and grid count is valid.
+- **E08**: Ticks must align with the pool's tick spacing.
+- **E09**: Grid step must be greater than zero and less than 10,000.
+- **E10**: Grid quantity must be greater than zero and less than 10,000.
+- **E11**: Distribution type not implemented (e.g., SIGMOID or LOGARITHMIC).
+- **E12**: Cannot close positions while there are active positions.
+- **E13**: No Ether balance to recover.
+- **E14**: Price deviation exceeds the maximum allowable deviation or invalid token amounts for BUY/SELL grid types.
+- **E15**: Position index out of bounds.
+
 ## Getting Started
 
 To use or contribute to this project, follow these steps:
