@@ -89,7 +89,7 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
         uint256 token1Amount,
         uint256 slippage,
         GridType gridType,
-        DistributionType distributionType
+        DistributionWeights.DistributionType distributionType
     ) public override nonReentrant onlyOwner {
         require(slippage <= 500, "E06: Slippage must be less than or equal to 500 (5%)");
 
@@ -167,7 +167,7 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
      * @param gridType The type of grid (NEUTRAL, BUY, SELL).
      * @param distributionType The type of liquidity distribution (FLAT, CURVED, LINEAR, SIGMOID, FIBONACCI, LOGARITHMIC).
      */
-    function compound(uint256 slippage, GridType gridType, DistributionType distributionType)
+    function compound(uint256 slippage, GridType gridType, DistributionWeights.DistributionType distributionType)
         external
         override
         nonReentrant
@@ -209,7 +209,10 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
      * @param gridType The type of grid (NEUTRAL, BUY, SELL).
      * @param distributionType The type of liquidity distribution (FLAT, CURVED, LINEAR, SIGMOID, FIBONACCI, LOGARITHMIC).
      */
-    function sweep(uint256 slippage, GridType gridType, DistributionType distributionType) external override {
+    function sweep(uint256 slippage, GridType gridType, DistributionWeights.DistributionType distributionType)
+        external
+        override
+    {
         require(slippage <= 500, "E06: Slippage must be less than or equal to 500 (5%)");
         GridPositionManagerStorage storage $ = _getStorage();
         // Fetch the current pool tick
@@ -392,13 +395,13 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
         uint256 token1Amount,
         uint256 slippage,
         GridType gridType,
-        DistributionType distributionType
+        DistributionWeights.DistributionType distributionType
     ) internal {
         int24 currentTick = _getCurrentTick();
         int24[] memory gridTicks = _calculateGridTicks(currentTick, gridType);
 
         uint256 gridLength = gridTicks.length - 1;
-        uint256[] memory distributionWeights = _getDistributionWeights(gridLength, distributionType);
+        uint256[] memory distributionWeights = DistributionWeights.getWeights(gridLength, distributionType);
         uint256 positionsLength = gridType == GridType.NEUTRAL ? gridLength.div(2) : gridLength;
 
         for (uint256 i = 0; i < gridLength; i++) {
@@ -414,63 +417,6 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
             });
             _handlePosition(params);
         }
-    }
-
-    /**
-     * @dev Returns the distribution weights for the specified distribution type.
-     * @param gridLength The number of grid intervals.
-     * @param distributionType The type of liquidity distribution.
-     * @return An array of distribution weights.
-     */
-    function _getDistributionWeights(uint256 gridLength, DistributionType distributionType)
-        public
-        pure
-        returns (uint256[] memory)
-    {
-        uint256[] memory weights = new uint256[](gridLength);
-
-        if (distributionType == DistributionType.FLAT) {
-            // Flat distribution: All grid intervals receive equal weight.
-            for (uint256 i = 0; i < gridLength; i++) {
-                weights[i] = 10000 / gridLength; // Equal distribution
-            }
-        } else if (distributionType == DistributionType.LINEAR) {
-            // Curved distribution: Weights increase linearly from the first to the last interval.
-            // This creates a triangular distribution where later intervals receive more weight.
-            for (uint256 i = 0; i < gridLength; i++) {
-                weights[i] = (i + 1) * 10000 / (gridLength * (gridLength + 1) / 2); // Triangular distribution
-            }
-        } else if (distributionType == DistributionType.REVERSE_LINEAR) {
-            // Linear distribution: Weights decrease linearly from the first to the last interval.
-            // This creates a linear decay where earlier intervals receive more weight.
-            for (uint256 i = 0; i < gridLength; i++) {
-                weights[i] = (gridLength - i) * 10000 / (gridLength * (gridLength + 1) / 2); // Linear decay
-            }
-        } else if (distributionType == DistributionType.SIGMOID) {
-            // Sigmoid distribution: Not implemented. Typically, this would create an S-shaped curve.
-            revert("E11: Sigmoid distribution not implemented");
-        } else if (distributionType == DistributionType.FIBONACCI) {
-            // Fibonacci distribution: Weights are based on the Fibonacci sequence.
-            // Each interval's weight is proportional to its Fibonacci number.
-            uint256[] memory fib = new uint256[](gridLength);
-            fib[0] = 1;
-            fib[1] = 1;
-            for (uint256 i = 2; i < gridLength; i++) {
-                fib[i] = fib[i - 1] + fib[i - 2];
-            }
-            uint256 total = 0;
-            for (uint256 i = 0; i < gridLength; i++) {
-                total += fib[i];
-            }
-            for (uint256 i = 0; i < gridLength; i++) {
-                weights[i] = fib[i] * 10000 / total;
-            }
-        } else if (distributionType == DistributionType.LOGARITHMIC) {
-            // Logarithmic distribution: Not implemented. Typically, this would create a logarithmic curve.
-            revert("E11: Logarithmic distribution not implemented");
-        }
-
-        return weights;
     }
 
     /**

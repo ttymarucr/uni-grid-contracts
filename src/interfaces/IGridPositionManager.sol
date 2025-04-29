@@ -2,6 +2,8 @@
 pragma abicoder v2;
 pragma solidity ^0.7.0;
 
+import "../libraries/DistributionWeights.sol";
+
 interface IGridPositionManager {
     struct Position {
         uint256 tokenId; // Token ID of the position
@@ -42,15 +44,6 @@ interface IGridPositionManager {
         NEUTRAL,
         BUY,
         SELL
-    }
-
-    enum DistributionType {
-        FLAT,
-        LINEAR,
-        REVERSE_LINEAR,
-        SIGMOID,
-        FIBONACCI,
-        LOGARITHMIC
     }
 
     // Events
@@ -127,7 +120,7 @@ interface IGridPositionManager {
         uint256 token1Amount,
         uint256 slippage,
         GridType gridType,
-        DistributionType distributionType
+        DistributionWeights.DistributionType distributionType
     ) external;
 
     /**
@@ -142,7 +135,8 @@ interface IGridPositionManager {
      * @param gridType The type of grid (NEUTRAL, BUY, SELL).
      * @param distributionType The type of liquidity distribution (FLAT, CURVED, LINEAR, SIGMOID, FIBONACCI, LOGARITHMIC).
      */
-    function compound(uint256 slippage, GridType gridType, DistributionType distributionType) external;
+    function compound(uint256 slippage, GridType gridType, DistributionWeights.DistributionType distributionType)
+        external;
 
     /**
      * @dev Sweeps positions outside the price range and redeposits the collected tokens.
@@ -150,7 +144,8 @@ interface IGridPositionManager {
      * @param gridType The type of grid (NEUTRAL, BUY, SELL).
      * @param distributionType The type of liquidity distribution (FLAT, CURVED, LINEAR, SIGMOID, FIBONACCI, LOGARITHMIC).
      */
-    function sweep(uint256 slippage, GridType gridType, DistributionType distributionType) external;
+    function sweep(uint256 slippage, GridType gridType, DistributionWeights.DistributionType distributionType)
+        external;
 
     /**
      * @dev Closes all positions by burning them. Can only be called if activePositionIndexes.length is zero.
