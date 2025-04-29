@@ -3,6 +3,10 @@ import "@nomicfoundation/hardhat-toolbox-viem";
 import "@nomicfoundation/hardhat-ethers";
 import "@nomiclabs/hardhat-waffle";
 
+const { vars } = require("hardhat/config");
+
+const ALCHEMY_API_KEY = vars.get("ALCHEMY_API_KEY");
+
 const config: HardhatUserConfig = {
   defaultNetwork: "hardhat",
   solidity: {
@@ -17,7 +21,7 @@ const config: HardhatUserConfig = {
   networks: {
     hardhat: {
       forking: {
-        url: `https://base-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`, // Replace with the actual Base mainnet RPC URL
+        url: `https://base-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}`, // Replace with the actual Base mainnet RPC URL
         blockNumber: 28203460, // Replace with the desired block number for forking
       },
       chainId: 8453,

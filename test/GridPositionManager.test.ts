@@ -14,6 +14,15 @@ describe("GridPositionManager", function () {
     SELL = 2,
   }
 
+  enum DistributionType {
+    FLAT = 0,
+    LINEAR = 1,
+    REVERSE_LINEAR = 2,
+    SIGMOID = 3,
+    FIBONACCI = 4,
+    LOGARITHMIC = 5,
+  }
+
   let amount0 = ethers.utils.parseEther("0.0001");
   let amount1 = ethers.utils.parseUnits("100", 6);
 
@@ -123,9 +132,9 @@ describe("GridPositionManager", function () {
   });
 
   it("Should allow NEUTRAL deposits and emit Deposit event", async function () {
-    await expect(gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.NEUTRAL))
+    await expect(gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.NEUTRAL, DistributionType.FLAT))
       .to.emit(gridPositionManager, "Deposit");
-    const {token0Liquidity, token1Liquidity} = await gridPositionManager.getLiquidity();
+    const { token0Liquidity, token1Liquidity } = await gridPositionManager.getLiquidity();
     expect(token0Liquidity).to.be.gt(0);
     expect(token1Liquidity).to.be.gt(0);
     const isInRange = await gridPositionManager.isInRange();
@@ -133,22 +142,22 @@ describe("GridPositionManager", function () {
   });
 
   it("Should allow SELL deposits and emit Deposit event", async function () {
-    await expect(gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.SELL))
+    await expect(gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.SELL, DistributionType.LINEAR))
       .to.emit(gridPositionManager, "Deposit");
   });
 
   it("Should allow BUY deposits and emit Deposit event", async function () {
-    await expect(gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.BUY))
+    await expect(gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.BUY, DistributionType.FIBONACCI))
       .to.emit(gridPositionManager, "Deposit");
   });
 
   it("Should revert if deposit amounts are invalid", async function () {
-    await expect(gridPositionManager.connect(owner).deposit(0, amount1, slippage, GridType.NEUTRAL)).to.be.revertedWith("E05: Token amounts must be greater than 0");
-    await expect(gridPositionManager.connect(owner).deposit(amount0, 0, slippage, GridType.NEUTRAL)).to.be.revertedWith("E05: Token amounts must be greater than 0");
+    await expect(gridPositionManager.connect(owner).deposit(0, amount1, slippage, GridType.NEUTRAL, DistributionType.FLAT)).to.be.revertedWith("E05: Token amounts must be greater than 0");
+    await expect(gridPositionManager.connect(owner).deposit(amount0, 0, slippage, GridType.NEUTRAL, DistributionType.FLAT)).to.be.revertedWith("E05: Token amounts must be greater than 0");
   });
 
   it("Should revert if slippage is too high", async function () {
-    await expect(gridPositionManager.connect(owner).deposit(amount0, amount1, 600, GridType.NEUTRAL)).to.be.revertedWith("E06: Slippage must be less than or equal to 500 (5%)");
+    await expect(gridPositionManager.connect(owner).deposit(amount0, amount1, 600, GridType.NEUTRAL, DistributionType.FLAT)).to.be.revertedWith("E06: Slippage must be less than or equal to 500 (5%)");
   });
 
   it("Should allow the owner to withdraw and emit Withdraw event", async function () {
@@ -166,35 +175,35 @@ describe("GridPositionManager", function () {
 
   it("Should allow NEUTRAL compounding fees", async function () {
     await gridPositionManager.connect(owner).setMinFees(ethers.utils.parseEther("0.0001"), ethers.utils.parseUnits("1", 6));
-    await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.NEUTRAL);
-    await expect(gridPositionManager.connect(owner).compound(slippage, GridType.NEUTRAL)).not.to.emit(gridPositionManager, "Compound");
+    await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.NEUTRAL, DistributionType.FLAT);
+    await expect(gridPositionManager.connect(owner).compound(slippage, GridType.NEUTRAL, DistributionType.FLAT)).not.to.emit(gridPositionManager, "Compound");
   });
 
   it("Should allow BUY compounding fees", async function () {
     await gridPositionManager.connect(owner).setMinFees(ethers.utils.parseEther("0.001"), ethers.utils.parseUnits("1", 6));
-    await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.BUY);
-    await expect(gridPositionManager.connect(owner).compound(slippage, GridType.BUY)).not.to.emit(gridPositionManager, "Compound");
+    await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.BUY, DistributionType.LINEAR);
+    await expect(gridPositionManager.connect(owner).compound(slippage, GridType.BUY, DistributionType.LINEAR)).not.to.emit(gridPositionManager, "Compound");
   });
 
   it("Should allow SELL compounding fees", async function () {
     await gridPositionManager.connect(owner).setMinFees(ethers.utils.parseEther("0.0001"), ethers.utils.parseUnits("1", 6));
-    await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.SELL);
-    await expect(gridPositionManager.connect(owner).compound(slippage, GridType.SELL)).not.to.emit(gridPositionManager, "Compound");
+    await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.SELL, DistributionType.FIBONACCI);
+    await expect(gridPositionManager.connect(owner).compound(slippage, GridType.SELL, DistributionType.FIBONACCI)).not.to.emit(gridPositionManager, "Compound");
   });
 
   it("Should allow NEUTRAL sweeping positions", async function () {
-    await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.NEUTRAL);
-    await expect(gridPositionManager.sweep(slippage, GridType.NEUTRAL)).to.emit(gridPositionManager, "Deposit");
+    await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.NEUTRAL, DistributionType.FLAT);
+    await expect(gridPositionManager.sweep(slippage, GridType.NEUTRAL, DistributionType.FLAT)).to.emit(gridPositionManager, "Deposit");
   });
 
   it("Should allow BUY sweeping positions", async function () {
-    await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.BUY);
-    await expect(gridPositionManager.sweep(slippage, GridType.BUY)).to.emit(gridPositionManager, "Deposit");
+    await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.BUY, DistributionType.LINEAR);
+    await expect(gridPositionManager.sweep(slippage, GridType.BUY, DistributionType.LINEAR)).to.emit(gridPositionManager, "Deposit");
   });
 
   it("Should allow SELL sweeping positions", async function () {
-    await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.SELL);
-    await expect(gridPositionManager.sweep(slippage, GridType.SELL)).to.emit(gridPositionManager, "Deposit");
+    await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.SELL, DistributionType.FIBONACCI);
+    await expect(gridPositionManager.sweep(slippage, GridType.SELL, DistributionType.FIBONACCI)).to.emit(gridPositionManager, "Deposit");
   });
 
   it("Should revert Ether transfers", async function () {
@@ -241,5 +250,59 @@ describe("GridPositionManager", function () {
 
   it("Should revert if position index is out of bounds", async function () {
     await expect(gridPositionManager.getPosition(999)).to.be.revertedWith("E15: Index out of bounds");
+  });
+
+  it("Should calculate flat distribution weights correctly", async function () {
+    const gridLength = 5;
+    const weights = await gridPositionManager._getDistributionWeights(gridLength, DistributionType.FLAT);
+    const expectedWeight = 10000 / gridLength;
+
+    for (let i = 0; i < gridLength; i++) {
+      expect(weights[i]).to.equal(expectedWeight, `Flat distribution weight mismatch at index ${i}`);
+    }
+  });
+
+  it("Should calculate curved distribution weights correctly", async function () {
+    const gridLength = 5;
+    const weights = await gridPositionManager._getDistributionWeights(gridLength, DistributionType.LINEAR);
+    const totalWeight = (gridLength * (gridLength + 1)) / 2;
+
+    for (let i = 0; i < gridLength; i++) {
+      const expectedWeight = ((i + 1) * 10000) / totalWeight;
+      expect(weights[i]).to.equal(expectedWeight, `Curved distribution weight mismatch at index ${i}`);
+    }
+  });
+
+  it("Should calculate linear distribution weights correctly", async function () {
+    const gridLength = 5;
+    const weights = await gridPositionManager._getDistributionWeights(gridLength, DistributionType.REVERSE_LINEAR);
+    const totalWeight = (gridLength * (gridLength + 1)) / 2;
+
+    for (let i = 0; i < gridLength; i++) {
+      const expectedWeight = ((gridLength - i) * 10000) / totalWeight;
+      expect(weights[i]).to.equal(expectedWeight, `Linear distribution weight mismatch at index ${i}`);
+    }
+  });
+
+  it("Should calculate Fibonacci distribution weights correctly", async function () {
+    const gridLength = 5;
+    const weights = await gridPositionManager._getDistributionWeights(gridLength, DistributionType.FIBONACCI);
+    const fib = [1, 1, 2, 3, 5];
+    const totalWeight = fib.reduce((a, b) => a + b, 0);
+
+    for (let i = 0; i < gridLength; i++) {
+      const expectedWeight = (fib[i] * 10000) / totalWeight;
+      expect(weights[i]).to.equal(expectedWeight, `Fibonacci distribution weight mismatch at index ${i}`);
+    }
+  });
+
+  it("Should revert for unimplemented sigmoid distribution", async function () {
+    await expect(gridPositionManager._getDistributionWeights(5, DistributionType.SIGMOID))
+      .to.be.revertedWith("E11: Sigmoid distribution not implemented");
+  });
+
+  it("Should revert for unimplemented logarithmic distribution", async function () {
+    await expect(gridPositionManager._getDistributionWeights(5, DistributionType.LOGARITHMIC))
+      .to.be.revertedWith("E11: Logarithmic distribution not implemented");
   });
 });
