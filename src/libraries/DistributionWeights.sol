@@ -27,7 +27,7 @@ library DistributionWeights {
             // Curved distribution: Weights increase linearly from the first to the last interval.
             // This creates a triangular distribution where later intervals receive more weight.
             for (uint256 i = 0; i < gridLength; i++) {
-                weights[i] = (i + 1) * 10000 / (gridLength * (gridLength + 1) / 2); // Triangular distribution
+                weights[i] = (i + 1) * 10000 / (gridLength * (gridLength + 1) / 2); // Linear growth
             }
         } else if (distributionType == DistributionType.REVERSE_LINEAR) {
             // Linear distribution: Weights decrease linearly from the first to the last interval.

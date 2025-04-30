@@ -66,29 +66,10 @@ interface IGridPositionManager {
      */
     event Compound(address indexed owner, uint256 accumulated0Fees, uint256 accumulated1Fees);
 
-    /**
-     * @dev Emitted when fees are collected from active positions.
-     * @param owner The address of the owner who collected the fees.
-     * @param amount0 The amount of token0 collected.
-     * @param amount1 The amount of token1 collected.
-     */
-    event FeesCollected(address indexed owner, uint256 amount0, uint256 amount1);
-
     event GridStepUpdated(uint256 newGridStep);
     event GridQuantityUpdated(uint256 newGridQuantity);
     event MinFeesUpdated(uint256 token0MinFees, uint256 token1MinFees);
 
-    /**
-     * @dev Returns the address of the Uniswap V3 pool.
-     * @return The address of the pool.
-     */
-    function getPool() external view returns (address);
-
-    /**
-     * @dev Returns the address of the Uniswap V3 position manager.
-     * @return The address of the position manager.
-     */
-    function getPositionManager() external view returns (address);
 
     /**
      * @dev Returns the total grid quantity.
@@ -156,10 +137,10 @@ interface IGridPositionManager {
     function close() external;
 
     /**
-     * @dev Collects all fees from active positions and sends them to the owner.
+     * @dev Collects all fees from active positions and the contract available balance and sends them to the owner.
      *      Only callable by the contract owner.
      */
-    function collectFees() external;
+    function withdrawAvailable() external;
 
     /**
      * @dev Sets the grid step size.
