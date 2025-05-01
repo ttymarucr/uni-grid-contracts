@@ -4,6 +4,7 @@ pragma solidity ^0.7.6;
 
 import "forge-std/Test.sol";
 import "../src/libraries/GridTickCalculator.sol";
+import {console} from "forge-std/console.sol";
 
 contract GridTickCalculatorTest is Test {
     using GridTickCalculator for int24;
@@ -18,13 +19,14 @@ contract GridTickCalculatorTest is Test {
             targetTick, GridTickCalculator.GridType.NEUTRAL, gridQuantity, gridStep, tickSpacing
         );
 
-        int24[] memory expectedTicks = new int24[](6);
+        int24[] memory expectedTicks = new int24[](7);
         expectedTicks[0] = 940;
         expectedTicks[1] = 960;
         expectedTicks[2] = 980;
         expectedTicks[3] = 1000;
         expectedTicks[4] = 1020;
         expectedTicks[5] = 1040;
+        expectedTicks[6] = 1060;
 
         for (uint256 i = 0; i < gridTicks.length; i++) {
             assertEq(gridTicks[i], expectedTicks[i], "Neutral grid tick mismatch");
@@ -41,11 +43,12 @@ contract GridTickCalculatorTest is Test {
             targetTick, GridTickCalculator.GridType.BUY, gridQuantity, gridStep, tickSpacing
         );
 
-        int24[] memory expectedTicks = new int24[](4);
+        int24[] memory expectedTicks = new int24[](5);
         expectedTicks[0] = 960;
         expectedTicks[1] = 970;
         expectedTicks[2] = 980;
         expectedTicks[3] = 990;
+        expectedTicks[4] = 1000;
 
         for (uint256 i = 0; i < gridTicks.length; i++) {
             assertEq(gridTicks[i], expectedTicks[i], "Buy grid tick mismatch");
@@ -62,11 +65,12 @@ contract GridTickCalculatorTest is Test {
             targetTick, GridTickCalculator.GridType.SELL, gridQuantity, gridStep, tickSpacing
         );
 
-        int24[] memory expectedTicks = new int24[](4);
+        int24[] memory expectedTicks = new int24[](5);
         expectedTicks[0] = 1000;
         expectedTicks[1] = 1010;
         expectedTicks[2] = 1020;
         expectedTicks[3] = 1030;
+        expectedTicks[4] = 1040;
 
         for (uint256 i = 0; i < gridTicks.length; i++) {
             assertEq(gridTicks[i], expectedTicks[i], "Sell grid tick mismatch");

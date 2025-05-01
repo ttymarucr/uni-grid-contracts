@@ -115,10 +115,6 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
         _distributeLiquidity(token0Amount, token1Amount, slippage, gridType, distributionType);
     }
 
-    /**
-     * @dev Withdraws all liquidity from active positions.
-     *      Only callable by the contract owner.
-     */
     function withdraw() external override onlyOwner nonReentrant {
         GridPositionManagerStorage storage $ = _getStorage();
         while ($.activePositionIndexes.length > 0) {
@@ -126,24 +122,8 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
             uint256 index = $.activePositionIndexes[i];
             uint256 tokenId = $.positions[index].tokenId;
             uint128 liquidity = $.positions[index].liquidity;
-            $.positionManager.decreaseLiquidity(
-                INonfungiblePositionManager.DecreaseLiquidityParams({
-                    tokenId: tokenId,
-                    liquidity: liquidity,
-                    amount0Min: 0,
-                    amount1Min: 0,
-                    deadline: block.timestamp + 1 hours
-                })
-            );
-
-            $.positionManager.collect(
-                INonfungiblePositionManager.CollectParams({
-                    tokenId: tokenId,
-                    recipient: address(this),
-                    amount0Max: type(uint128).max,
-                    amount1Max: type(uint128).max
-                })
-            );
+            // Collect fees from the position
+            _decreaseLiquidityAndCollect(tokenId, liquidity);
 
             // Remove the position from the active positions list
             _removeActivePosition(i);
@@ -200,6 +180,9 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
         if (accumulated0Fees > $.token0MinFees || accumulated1Fees > $.token1MinFees) {
             _distributeLiquidity(accumulated0Fees, accumulated1Fees, slippage, gridType, distributionType);
             emit Compound(msg.sender, accumulated0Fees, accumulated1Fees);
+        } else {
+            // If no fees are available, revert the transaction
+            revert("E13: Not enough balance");
         }
     }
 
@@ -226,33 +209,13 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
         int24 upperBound = currentTick + tickRange;
         for (uint256 i = 0; i < $.activePositionIndexes.length; i++) {
             uint256 index = $.activePositionIndexes[i];
-            uint256 tokenId = $.positions[index].tokenId;
             int24 tickLower = $.positions[index].tickLower;
             int24 tickUpper = $.positions[index].tickUpper;
-            uint128 liquidity = $.positions[index].liquidity;
 
             // Check if the position is outside the tick range
             if (tickUpper < lowerBound || tickLower > upperBound) {
                 // Remove liquidity from the position
-                $.positionManager.decreaseLiquidity(
-                    INonfungiblePositionManager.DecreaseLiquidityParams({
-                        tokenId: tokenId,
-                        liquidity: liquidity,
-                        amount0Min: 0,
-                        amount1Min: 0,
-                        deadline: block.timestamp + 1 hours
-                    })
-                );
-
-                // Collect fees and tokens
-                $.positionManager.collect(
-                    INonfungiblePositionManager.CollectParams({
-                        tokenId: tokenId,
-                        recipient: address(this),
-                        amount0Max: type(uint128).max,
-                        amount1Max: type(uint128).max
-                    })
-                );
+                _decreaseLiquidityAndCollect($.positions[index].tokenId, $.positions[index].liquidity);
 
                 // Remove the position from the active positions list
                 _removeActivePosition(i);
@@ -267,6 +230,9 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
         uint256 token1Balance = IERC20Metadata($.pool.token1()).balanceOf(address(this));
         if (token0Balance > $.token0MinFees || token1Balance > $.token1MinFees) {
             _distributeLiquidity(token0Balance, token1Balance, slippage, gridType, distributionType);
+        } else {
+            // If no tokens are available, revert the transaction
+            revert("E13: Not enough balance");
         }
     }
 
@@ -550,6 +516,33 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
         $.activePositionIndexes.push($.positions.length - 1); // Use positions.length - 1 directly
         emit GridDeposit(msg.sender, amount0, amount1);
         assert(amount0 > 0 || amount1 > 0); // Ensure at least one token is deposited
+    }
+
+    /**
+     * @dev Decreases liquidity and collects tokens for a given position.
+     * @param tokenId The token ID of the position.
+     * @param liquidity The amount of liquidity to decrease.
+     */
+    function _decreaseLiquidityAndCollect(uint256 tokenId, uint128 liquidity) internal {
+        GridPositionManagerStorage storage $ = _getStorage();
+        $.positionManager.decreaseLiquidity(
+            INonfungiblePositionManager.DecreaseLiquidityParams({
+                tokenId: tokenId,
+                liquidity: liquidity,
+                amount0Min: 0,
+                amount1Min: 0,
+                deadline: block.timestamp + 1 hours
+            })
+        );
+
+        $.positionManager.collect(
+            INonfungiblePositionManager.CollectParams({
+                tokenId: tokenId,
+                recipient: address(this),
+                amount0Max: type(uint128).max,
+                amount1Max: type(uint128).max
+            })
+        );
     }
 
     /**

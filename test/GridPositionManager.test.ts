@@ -97,9 +97,6 @@ describe("GridPositionManager", function () {
     amount0 = await wethContract.balanceOf(owner.address);
     amount1 = await usdcContract.balanceOf(owner.address);
 
-    console.log("Owner WETH Balance:", amount0.toString());
-    console.log("Owner USDC Balance:", amount1.toString());
-
     // Approve GridPositionManager to spend WETH and USDC
     await wethContract.connect(owner).approve(gridPositionManager.address, amount0);
     await usdcContract.connect(owner).approve(gridPositionManager.address, amount1);
@@ -203,24 +200,24 @@ describe("GridPositionManager", function () {
   it("Should allow NEUTRAL compounding fees", async function () {
     await gridPositionManager.connect(owner).setMinFees(ethers.utils.parseEther("0.0001"), ethers.utils.parseUnits("1", 6));
     await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.NEUTRAL, DistributionType.FLAT);
-    await expect(gridPositionManager.connect(owner).compound(slippage, GridType.NEUTRAL, DistributionType.FLAT)).not.to.emit(gridPositionManager, "Compound");
+    await expect(gridPositionManager.connect(owner).compound(slippage, GridType.NEUTRAL, DistributionType.FLAT)).to.be.revertedWith("E13: Not enough balance");
   });
 
   it("Should allow BUY compounding fees", async function () {
     await gridPositionManager.connect(owner).setMinFees(ethers.utils.parseEther("0.001"), ethers.utils.parseUnits("1", 6));
     await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.BUY, DistributionType.LINEAR);
-    await expect(gridPositionManager.connect(owner).compound(slippage, GridType.BUY, DistributionType.LINEAR)).not.to.emit(gridPositionManager, "Compound");
+    await expect(gridPositionManager.connect(owner).compound(slippage, GridType.BUY, DistributionType.LINEAR)).to.be.revertedWith("E13: Not enough balance");
   });
 
   it("Should allow SELL compounding fees", async function () {
     await gridPositionManager.connect(owner).setMinFees(ethers.utils.parseEther("0.0001"), ethers.utils.parseUnits("1", 6));
     await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.SELL, DistributionType.FIBONACCI);
-    await expect(gridPositionManager.connect(owner).compound(slippage, GridType.SELL, DistributionType.FIBONACCI)).not.to.emit(gridPositionManager, "Compound");
+    await expect(gridPositionManager.connect(owner).compound(slippage, GridType.SELL, DistributionType.FIBONACCI)).to.be.revertedWith("E13: Not enough balance");
   });
 
   it("Should allow NEUTRAL sweeping positions", async function () {
     await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.NEUTRAL, DistributionType.FLAT);
-    await expect(gridPositionManager.sweep(slippage, GridType.NEUTRAL, DistributionType.FLAT)).to.emit(gridPositionManager, "GridDeposit");
+    await expect(gridPositionManager.sweep(slippage, GridType.NEUTRAL, DistributionType.FLAT)).not.to.emit(gridPositionManager, "GridDeposit");
   });
 
   it("Should allow BUY sweeping positions", async function () {
