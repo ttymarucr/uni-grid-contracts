@@ -48,7 +48,7 @@ interface IGridPositionManager {
      * @param token0Amount Amount of token0 deposited.
      * @param token1Amount Amount of token1 deposited.
      */
-    event Deposit(address indexed owner, uint256 token0Amount, uint256 token1Amount);
+    event GridDeposit(address indexed owner, uint256 token0Amount, uint256 token1Amount);
 
     /**
      * @dev Emitted when liquidity is withdrawn.
@@ -69,7 +69,6 @@ interface IGridPositionManager {
     event GridStepUpdated(uint256 newGridStep);
     event GridQuantityUpdated(uint256 newGridQuantity);
     event MinFeesUpdated(uint256 token0MinFees, uint256 token1MinFees);
-
 
     /**
      * @dev Returns the total grid quantity.

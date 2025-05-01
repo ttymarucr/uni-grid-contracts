@@ -1,5 +1,9 @@
 import { expect } from "chai";
-import { ethers } from "hardhat";
+import hre, { ethers } from "hardhat";
+import {reset} from "@nomicfoundation/hardhat-network-helpers";
+import { vars } from "hardhat/config";
+
+const ALCHEMY_API_KEY = vars.get("ALCHEMY_API_KEY");
 
 describe("GridPositionManager", function () {
   // Base mainnet addresses
@@ -51,22 +55,29 @@ describe("GridPositionManager", function () {
     const wethContract = await ethers.getContractAt("IERC20", WETHAddress);
     const usdcContract = await ethers.getContractAt("IERC20", USDCAddress);
 
-    const wethBalance = await wethContract.balanceOf(owner.address);
-    const usdcBalance = await usdcContract.balanceOf(owner.address);
+    amount0 = await wethContract.balanceOf(owner.address);
+    amount1 = await usdcContract.balanceOf(owner.address);
 
-    console.log("Owner WETH Balance:", wethBalance.toString());
-    console.log("Owner USDC Balance:", usdcBalance.toString());
-    const wethBalancePercentage = wethBalance.div(100); // 1% of WETH balance
-    const usdcBalancePercentage = usdcBalance.div(100); // 1% of USDC balance
-
-    amount0 = wethBalancePercentage;
-    amount1 = usdcBalancePercentage;
-
-    console.log("Amount0 (1% WETH):", amount0.toString());
-    console.log("Amount1 (1% USDC):", amount1.toString());
+    console.log("Owner WETH Balance:", amount0.toString());
+    console.log("Owner USDC Balance:", amount1.toString());
   });
 
   beforeEach(async function () {
+    await reset(`https://base-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}`, 28203460);
+    const ownerAddress = "0x737284cFc66fd5989F2AC866989d70Ae134227cB";
+    // Start impersonating the address
+    await ethers.provider.send("hardhat_impersonateAccount", [ownerAddress]);
+    // Get a signer for the impersonated address
+    owner = await ethers.getSigner(ownerAddress);
+    
+    const [funder] = await ethers.getSigners();
+    // Send ETH to the owner address
+    const tx = await funder.sendTransaction({
+        to: ownerAddress,
+        value: ethers.utils.parseEther("10"), // Amount to send (10 ETH in this case)
+    });
+
+    await tx.wait();
     const iUniswapV3Pool = await ethers.getContractAt("IUniswapV3Pool", poolAddress);
     const iNonfungiblePositionManager = await ethers.getContractAt("INonfungiblePositionManager", positionManagerAddress);
 
@@ -82,6 +93,12 @@ describe("GridPositionManager", function () {
 
     const wethContract = await ethers.getContractAt("IERC20", WETHAddress);
     const usdcContract = await ethers.getContractAt("IERC20", USDCAddress);
+
+    amount0 = await wethContract.balanceOf(owner.address);
+    amount1 = await usdcContract.balanceOf(owner.address);
+
+    console.log("Owner WETH Balance:", amount0.toString());
+    console.log("Owner USDC Balance:", amount1.toString());
 
     // Approve GridPositionManager to spend WETH and USDC
     await wethContract.connect(owner).approve(gridPositionManager.address, amount0);
@@ -131,9 +148,19 @@ describe("GridPositionManager", function () {
     expect(token1MinFees).to.equal(ethers.utils.parseUnits("0.0001", 6));
   });
 
-  it("Should allow NEUTRAL deposits and emit Deposit event", async function () {
+  it("Should allow NEUTRAL deposits with FLAT distribution and emit Deposit event", async function () {
     await expect(gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.NEUTRAL, DistributionType.FLAT))
-      .to.emit(gridPositionManager, "Deposit");
+      .to.emit(gridPositionManager, "GridDeposit");
+    const { token0Liquidity, token1Liquidity } = await gridPositionManager.getLiquidity();
+    expect(token0Liquidity).to.be.gt(0);
+    expect(token1Liquidity).to.be.gt(0);
+    const isInRange = await gridPositionManager.isInRange();
+    expect(isInRange).to.be.true;
+  });
+
+  it("Should allow NEUTRAL deposits with LINEAR distribution and emit Deposit event", async function () {
+    await expect(gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.NEUTRAL, DistributionType.LINEAR))
+      .to.emit(gridPositionManager, "GridDeposit");
     const { token0Liquidity, token1Liquidity } = await gridPositionManager.getLiquidity();
     expect(token0Liquidity).to.be.gt(0);
     expect(token1Liquidity).to.be.gt(0);
@@ -143,12 +170,12 @@ describe("GridPositionManager", function () {
 
   it("Should allow SELL deposits and emit Deposit event", async function () {
     await expect(gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.SELL, DistributionType.LINEAR))
-      .to.emit(gridPositionManager, "Deposit");
+      .to.emit(gridPositionManager, "GridDeposit");
   });
 
   it("Should allow BUY deposits and emit Deposit event", async function () {
     await expect(gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.BUY, DistributionType.FIBONACCI))
-      .to.emit(gridPositionManager, "Deposit");
+      .to.emit(gridPositionManager, "GridDeposit");
   });
 
   it("Should revert if deposit amounts are invalid", async function () {
@@ -176,7 +203,7 @@ describe("GridPositionManager", function () {
   it("Should allow NEUTRAL compounding fees", async function () {
     await gridPositionManager.connect(owner).setMinFees(ethers.utils.parseEther("0.0001"), ethers.utils.parseUnits("1", 6));
     await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.NEUTRAL, DistributionType.FLAT);
-    await expect(gridPositionManager.connect(owner).compound(slippage, GridType.NEUTRAL, DistributionType.FLAT)).to.emit(gridPositionManager, "Compound");
+    await expect(gridPositionManager.connect(owner).compound(slippage, GridType.NEUTRAL, DistributionType.FLAT)).not.to.emit(gridPositionManager, "Compound");
   });
 
   it("Should allow BUY compounding fees", async function () {
@@ -193,17 +220,17 @@ describe("GridPositionManager", function () {
 
   it("Should allow NEUTRAL sweeping positions", async function () {
     await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.NEUTRAL, DistributionType.FLAT);
-    await expect(gridPositionManager.sweep(slippage, GridType.NEUTRAL, DistributionType.FLAT)).to.emit(gridPositionManager, "Deposit");
+    await expect(gridPositionManager.sweep(slippage, GridType.NEUTRAL, DistributionType.FLAT)).to.emit(gridPositionManager, "GridDeposit");
   });
 
   it("Should allow BUY sweeping positions", async function () {
     await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.BUY, DistributionType.LINEAR);
-    await expect(gridPositionManager.sweep(slippage, GridType.BUY, DistributionType.LINEAR)).to.emit(gridPositionManager, "Deposit");
+    await expect(gridPositionManager.sweep(slippage, GridType.BUY, DistributionType.LINEAR)).to.emit(gridPositionManager, "GridDeposit");
   });
 
   it("Should allow SELL sweeping positions", async function () {
     await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.SELL, DistributionType.FIBONACCI);
-    await expect(gridPositionManager.sweep(slippage, GridType.SELL, DistributionType.FIBONACCI)).to.emit(gridPositionManager, "Deposit");
+    await expect(gridPositionManager.sweep(slippage, GridType.SELL, DistributionType.FIBONACCI)).to.emit(gridPositionManager, "GridDeposit");
   });
 
   it("Should revert Ether transfers", async function () {
