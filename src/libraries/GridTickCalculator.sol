@@ -50,7 +50,7 @@ library GridTickCalculator {
         upperTick = upperTick - (upperTick % tickSpacing);
 
         uint256 gridCount = uint256((upperTick - lowerTick) / tickSpacing) + 1;
-        require(gridCount > 1, "E07");
+        require(gridCount > 1 && gridCount <= 1000, "E07");
 
         int24[] memory gridTicks = new int24[](gridCount);
         int24 currentTick = lowerTick;

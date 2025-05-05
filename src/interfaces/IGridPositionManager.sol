@@ -129,13 +129,6 @@ interface IGridPositionManager {
     ) external;
 
     /**
-     * @dev Closes all positions by burning them. Can only be called if activePositionIndexes.length is zero.
-     *      Assumes all positions in the positions array have zero liquidity.
-     *      Only callable by the contract owner.
-     */
-    function close() external;
-
-    /**
      * @dev Collects all fees from active positions and the contract available balance and sends them to the owner.
      *      Only callable by the contract owner.
      */

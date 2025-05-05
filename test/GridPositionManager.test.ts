@@ -217,7 +217,7 @@ describe("GridPositionManager", function () {
 
   it("Should allow NEUTRAL sweeping positions", async function () {
     await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.NEUTRAL, DistributionType.FLAT);
-    await expect(gridPositionManager.sweep(slippage, GridType.NEUTRAL, DistributionType.FLAT)).not.to.emit(gridPositionManager, "GridDeposit");
+    await expect(gridPositionManager.sweep(slippage, GridType.NEUTRAL, DistributionType.FLAT)).to.emit(gridPositionManager, "GridDeposit");
   });
 
   it("Should allow BUY sweeping positions", async function () {
@@ -237,35 +237,6 @@ describe("GridPositionManager", function () {
         value: ethers.utils.parseEther("1"),
       })
     ).to.be.rejectedWith("Ether transfers not allowed");
-  });
-
-  it("Should allow the owner to close all positions", async function () {
-    // Deposit funds to create positions
-    await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.NEUTRAL, DistributionType.FLAT);
-
-    // Withdraw all liquidity to ensure activePositionIndexes is empty
-    await gridPositionManager.connect(owner).withdraw();
-
-    // Call the close function
-    await expect(gridPositionManager.connect(owner).close())
-      .to.not.be.rejected;
-
-    // Verify that positions array is cleared
-    const positionsLength = await gridPositionManager.getPositionsLength();
-    expect(positionsLength).to.equal(0);
-  });
-
-  it("Should revert close if active positions exist", async function () {
-    // Deposit funds to create positions
-    await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.NEUTRAL, DistributionType.FLAT);
-
-    // Attempt to call close while active positions exist
-    await expect(gridPositionManager.connect(owner).close()).to.be.revertedWith("E12");
-  });
-
-  it("Should revert if active positions exist when closing", async function () {
-    await gridPositionManager.connect(owner).deposit(amount0, amount1, slippage, GridType.NEUTRAL, DistributionType.FLAT);
-    await expect(gridPositionManager.connect(owner).close()).to.be.revertedWith("E12");
   });
 
   it("Should revert if no Ether to recover", async function () {

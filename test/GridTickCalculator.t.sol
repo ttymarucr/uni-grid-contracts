@@ -119,7 +119,7 @@ contract GridTickCalculatorTest is Test {
     function testRevertOnExcessiveGridQuantity() public {
         vm.skip(true);
         int24 targetTick = 1000;
-        uint256 gridQuantity = 10000; // Excessive value
+        uint256 gridQuantity = 1000; // Excessive value
         uint256 gridStep = 2;
         int24 tickSpacing = 10;
 
