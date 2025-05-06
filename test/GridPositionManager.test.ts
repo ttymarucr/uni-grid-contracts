@@ -122,8 +122,8 @@ describe("GridPositionManager", function () {
   });
 
   it("Should revert if grid step is invalid", async function () {
-    await expect(gridPositionManager.connect(owner).setGridStep(0)).to.be.revertedWith("E09");
-    await expect(gridPositionManager.connect(owner).setGridStep(10000)).to.be.revertedWith("E09");
+    await expect(gridPositionManager.connect(owner).setGridStep(0)).to.be.revertedWith("E04");
+    await expect(gridPositionManager.connect(owner).setGridStep(10001)).to.be.revertedWith("E04");
   });
 
   it("Should allow the owner to set grid quantity", async function () {
@@ -133,8 +133,8 @@ describe("GridPositionManager", function () {
   });
 
   it("Should revert if grid quantity is invalid", async function () {
-    await expect(gridPositionManager.connect(owner).setGridQuantity(0)).to.be.revertedWith("E10");
-    await expect(gridPositionManager.connect(owner).setGridQuantity(10000)).to.be.revertedWith("E10");
+    await expect(gridPositionManager.connect(owner).setGridQuantity(0)).to.be.revertedWith("E03");
+    await expect(gridPositionManager.connect(owner).setGridQuantity(10001)).to.be.revertedWith("E03");
   });
 
   it("Should allow the owner to set minimum fees", async function () {
@@ -240,10 +240,7 @@ describe("GridPositionManager", function () {
   });
 
   it("Should revert if no Ether to recover", async function () {
-    await expect(gridPositionManager.connect(owner).recoverEther()).to.be.revertedWith("E13");
+    await expect(gridPositionManager.connect(owner).recoverEther()).to.be.revertedWith("E09");
   });
 
-  it("Should revert if position index is out of bounds", async function () {
-    await expect(gridPositionManager.getPosition(999)).to.be.revertedWith("E15");
-  });
 });

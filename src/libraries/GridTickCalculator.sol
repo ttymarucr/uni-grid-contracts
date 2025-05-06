@@ -31,8 +31,8 @@ library GridTickCalculator {
         uint256 gridStep,
         int24 tickSpacing
     ) internal pure returns (int24[] memory) {
-        require(gridQuantity > 0, "E03");
-        require(gridStep > 0, "E04");
+        require(gridQuantity > 0 && gridQuantity <= 1_000, "E03");
+        require(gridStep > 0 && gridStep <= 10_000, "E04");
 
         tickSpacing = tickSpacing * int24(gridStep);
         int24 tickRange = int24(gridType == GridType.NEUTRAL ? gridQuantity / 2 : gridQuantity) * tickSpacing;
@@ -50,7 +50,7 @@ library GridTickCalculator {
         upperTick = upperTick - (upperTick % tickSpacing);
 
         uint256 gridCount = uint256((upperTick - lowerTick) / tickSpacing) + 1;
-        require(gridCount > 1 && gridCount <= 1000, "E07");
+        require(gridCount > 1 && gridCount <= 1_000, "E07");
 
         int24[] memory gridTicks = new int24[](gridCount);
         int24 currentTick = lowerTick;

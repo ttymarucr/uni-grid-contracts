@@ -11,14 +11,12 @@ interface IGridPositionManager {
         int24 tickLower; // Lower tick of the position
         int24 tickUpper; // Upper tick of the position
         uint128 liquidity; // Liquidity of the position
-        uint256 index; // Index of the position in the positions array
     }
 
     struct PositionParams {
         int24 tickLower; // Lower tick of the position
         int24 tickUpper; // Upper tick of the position
         int24 currentTick; // Current tick of the pool
-        uint256 positionsLength; // Total number of positions
         uint256 slippage; // Slippage for adding liquidity (in basis points, e.g., 100 = 1%)
         uint256 token0Amount; // Amount of token0 to deposit
         uint256 token1Amount; // Amount of token1 to deposit
@@ -133,6 +131,14 @@ interface IGridPositionManager {
      *      Only callable by the contract owner.
      */
     function withdrawAvailable() external;
+
+    /**
+     * @dev Adds liquidity to a specific position.
+     * @param tokenId The token ID of the position.
+     * @param token0Amount Amount of token0 to deposit.
+     * @param token1Amount Amount of token1 to deposit.
+     */
+    function addLiquidityToPosition(uint256 tokenId, uint256 token0Amount, uint256 token1Amount) external;
 
     /**
      * @dev Sets the grid step size.

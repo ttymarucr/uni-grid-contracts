@@ -23,21 +23,17 @@ The purpose of this project is to leverage Uniswap V3's concentrated liquidity m
 
 ## Error Codes and Descriptions
 
-- **E01**: Pool address cannot be zero.
-- **E02**: Position manager address cannot be zero.
-- **E03**: Grid quantity must be greater than zero.
-- **E04**: Grid step must be greater than zero.
-- **E05**: For NEUTRAL grid type, both token0 and token1 amounts must be greater than zero.
-- **E06**: Slippage must be less than or equal to 500 basis points (5%).
-- **E07**: Invalid grid configuration. Ensure `tickLower` is less than `tickUpper` and grid count is valid.
-- **E08**: Ticks must align with the pool's tick spacing.
-- **E09**: Grid step must be greater than zero and less than 10,000.
-- **E10**: Grid quantity must be greater than zero and less than 10,000.
-- **E11**: Distribution type not implemented (e.g., SIGMOID or LOGARITHMIC).
-- **E12**: Cannot close positions while there are active positions.
-- **E13**: No Ether balance to recover.
-- **E14**: Price deviation exceeds the maximum allowable deviation or invalid token amounts for BUY/SELL grid types.
-- **E15**: Position index out of bounds.
+- **E01**: The provided `_pool` address is invalid (zero address).
+- **E02**: The provided `_positionManager` address is invalid (zero address).
+- **E03**: The `gridQuantity` must be greater than 0 and within the allowed range (1 to 1,000).
+- **E04**: The `gridStep` must be greater than 0 and within the allowed range (1 to 10,000).
+- **E05**: Invalid token amounts for the selected grid type (e.g., both `token0` and `token1` amounts are zero).
+- **E06**: The slippage value exceeds the maximum allowable limit (e.g., greater than 500 basis points).
+- **E07**: The calculated grid count or active positions exceeds the maximum allowed limit (1,000).
+- **E08**: The ticks are not aligned with the pool's tick spacing.
+- **E09**: Not enough balance or fees to perform the requested operation.
+- **E10**: The price deviation exceeds the maximum allowable deviation.
+- **E11**: The requested operation is not supported or the distribution type is not implemented.
 
 ## Getting Started
 
