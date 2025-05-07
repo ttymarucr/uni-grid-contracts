@@ -96,9 +96,9 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
         if (gridType == GridTickCalculator.GridType.NEUTRAL) {
             require(token0Amount > 0 && token1Amount > 0, "E05");
         } else if (gridType == GridTickCalculator.GridType.BUY) {
-            require(token1Amount > 0, "E14");
+            require(token1Amount > 0, "E12");
         } else if (gridType == GridTickCalculator.GridType.SELL) {
-            require(token0Amount > 0, "E14");
+            require(token0Amount > 0, "E13");
         }
         require(slippage <= 500, "E06");
 
@@ -141,7 +141,7 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
         GridTickCalculator.GridType gridType,
         DistributionWeights.DistributionType distributionType
     ) external override onlyOwner nonReentrant {
-        require(slippage <= 500, "E06: Slippage must be less than or equal to 500 (5%)");
+        require(slippage <= 500, "E06");
 
         GridPositionManagerStorage storage $ = _getStorage();
         uint256 accumulated0Fees = 0;
@@ -170,7 +170,7 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
             emit Compound(msg.sender, accumulated0Fees, accumulated1Fees);
         } else {
             // If no fees are available, revert the transaction
-            revert("E13: Not enough balance");
+            revert("E09");
         }
     }
 
@@ -185,7 +185,7 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
         GridTickCalculator.GridType gridType,
         DistributionWeights.DistributionType distributionType
     ) external override onlyOwner nonReentrant {
-        require(slippage <= 500, "E06: Slippage must be less than or equal to 500 (5%)");
+        require(slippage <= 500, "E06");
         GridPositionManagerStorage storage $ = _getStorage();
         // Fetch the current pool tick
         int24 currentTick = _getCurrentTick();
@@ -198,7 +198,7 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
             _distributeLiquidity(token0Balance, token1Balance, slippage, gridType, distributionType);
         } else {
             // If no tokens are available, revert the transaction
-            revert("E13: Not enough balance");
+            revert("E09");
         }
     }
 
@@ -238,16 +238,18 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
     /**
      * @dev Adds liquidity to an existing position using specified token amounts.
      * @param tokenId The token ID of the existing position.
+     * @param slippage Maximum allowable slippage for adding liquidity (in basis points, e.g., 100 = 1%).
      * @param token0Amount Amount of token0 to add.
      * @param token1Amount Amount of token1 to add.
      */
-    function addLiquidityToPosition(uint256 tokenId, uint256 token0Amount, uint256 token1Amount)
+    function addLiquidityToPosition(uint256 tokenId, uint256 slippage, uint256 token0Amount, uint256 token1Amount)
         external
         override
         onlyOwner
         nonReentrant
     {
-        require(token0Amount > 0 || token1Amount > 0, "E05");
+        require(slippage <= 500, "E06");
+        require(token0Amount > 0 || token1Amount > 0, "E14");
         GridPositionManagerStorage storage $ = _getStorage();
         require($.positions[tokenId].tokenId > 0, "E11");
 
@@ -259,8 +261,12 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
             TransferHelper.safeTransferFrom($.pool.token1(), msg.sender, address(this), token1Amount);
         }
 
+        // Calculate slippage
+        uint256 amount0Min = token0Amount.mul(uint256(10_000).sub(slippage)).div(10_000);
+        uint256 amount1Min = token1Amount.mul(uint256(10_000).sub(slippage)).div(10_000);
+
         // Add liquidity to the existing position
-        _addLiquidityToExistingPosition(tokenId, token0Amount, token1Amount, 0, 0);
+        _addLiquidityToExistingPosition(tokenId, token0Amount, token1Amount, amount0Min, amount1Min);
     }
 
     /**

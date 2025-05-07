@@ -133,12 +133,14 @@ interface IGridPositionManager {
     function withdrawAvailable() external;
 
     /**
-     * @dev Adds liquidity to a specific position.
-     * @param tokenId The token ID of the position.
-     * @param token0Amount Amount of token0 to deposit.
-     * @param token1Amount Amount of token1 to deposit.
+     * @dev Adds liquidity to an existing position using specified token amounts.
+     * @param tokenId The token ID of the existing position.
+     * @param slippage Maximum allowable slippage for adding liquidity (in basis points, e.g., 100 = 1%).
+     * @param token0Amount Amount of token0 to add.
+     * @param token1Amount Amount of token1 to add.
      */
-    function addLiquidityToPosition(uint256 tokenId, uint256 token0Amount, uint256 token1Amount) external;
+    function addLiquidityToPosition(uint256 tokenId, uint256 slippage, uint256 token0Amount, uint256 token1Amount)
+        external;
 
     /**
      * @dev Sets the grid step size.

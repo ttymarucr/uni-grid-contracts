@@ -37,17 +37,21 @@ These distribution types allow users to customize how liquidity is allocated acr
 
 ## Error Codes and Descriptions
 
-- **E01**: The provided `_pool` address is invalid (zero address).
-- **E02**: The provided `_positionManager` address is invalid (zero address).
-- **E03**: The `gridQuantity` must be greater than 0 and within the allowed range (1 to 1,000).
-- **E04**: The `gridStep` must be greater than 0 and within the allowed range (1 to 10,000).
-- **E05**: Invalid token amounts for the selected grid type (e.g., both `token0` and `token1` amounts are zero).
-- **E06**: The slippage value exceeds the maximum allowable limit (e.g., greater than 500 basis points).
-- **E07**: The calculated grid count or active positions exceeds the maximum allowed limit (1,000).
-- **E08**: The ticks are not aligned with the pool's tick spacing.
-- **E09**: Not enough balance or fees to perform the requested operation.
-- **E10**: The price deviation exceeds the maximum allowable deviation.
-- **E11**: The requested operation is not supported or the distribution type is not implemented.
+- **E01**: The pool address cannot be zero.
+- **E02**: The position manager address cannot be zero.
+- **E03**: The grid quantity must be greater than 0 and less than or equal to 1,000.
+- **E04**: The grid step must be greater than 0 and less than or equal to 10,000.
+- **E05**: Invalid token amounts for the specified grid type.
+- **E06**: Slippage must be less than or equal to 500 basis points (5%).
+- **E07**: Exceeded the maximum number of active positions (1,000).
+- **E08**: Ticks must align with the pool's tick spacing.
+- **E09**: No tokens or Ether available for the operation.
+- **E10**: Price deviation exceeds the maximum allowable deviation.
+- **E11**: Position not found or invalid token ID.
+- **E12**: Missing required token1 amount for the BUY grid type.
+- **E13**: Missing required token0 amount for the SELL grid type.
+- **E14**: Missing required token amount for adding liquidity.
+- **E99**: Distribution type not implemented (e.g., Sigmoid or Logarithmic).
 
 ## Getting Started
 
