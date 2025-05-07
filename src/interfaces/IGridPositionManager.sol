@@ -2,13 +2,25 @@
 pragma abicoder v2;
 pragma solidity ^0.7.0;
 
+import "../libraries/DistributionWeights.sol";
+import "../libraries/GridTickCalculator.sol";
+
 interface IGridPositionManager {
     struct Position {
         uint256 tokenId; // Token ID of the position
         int24 tickLower; // Lower tick of the position
         int24 tickUpper; // Upper tick of the position
         uint128 liquidity; // Liquidity of the position
-        uint256 index; // Index of the position in the positions array
+    }
+
+    struct PositionParams {
+        int24 tickLower; // Lower tick of the position
+        int24 tickUpper; // Upper tick of the position
+        int24 currentTick; // Current tick of the pool
+        uint256 slippage; // Slippage for adding liquidity (in basis points, e.g., 100 = 1%)
+        uint256 token0Amount; // Amount of token0 to deposit
+        uint256 token1Amount; // Amount of token1 to deposit
+        uint256 weight; // Weight of the position in the grid based on the distribution type
     }
 
     struct GridInfo {
@@ -27,12 +39,6 @@ interface IGridPositionManager {
         address token1; // Address of token1
     }
 
-    enum GridType {
-        NEUTRAL,
-        BUY,
-        SELL
-    }
-
     // Events
     /**
      * @dev Emitted when liquidity is deposited.
@@ -40,7 +46,7 @@ interface IGridPositionManager {
      * @param token0Amount Amount of token0 deposited.
      * @param token1Amount Amount of token1 deposited.
      */
-    event Deposit(address indexed owner, uint256 token0Amount, uint256 token1Amount);
+    event GridDeposit(address indexed owner, uint256 token0Amount, uint256 token1Amount);
 
     /**
      * @dev Emitted when liquidity is withdrawn.
@@ -63,18 +69,6 @@ interface IGridPositionManager {
     event MinFeesUpdated(uint256 token0MinFees, uint256 token1MinFees);
 
     /**
-     * @dev Returns the address of the Uniswap V3 pool.
-     * @return The address of the pool.
-     */
-    function getPool() external view returns (address);
-
-    /**
-     * @dev Returns the address of the Uniswap V3 position manager.
-     * @return The address of the position manager.
-     */
-    function getPositionManager() external view returns (address);
-
-    /**
      * @dev Returns the total grid quantity.
      * @return The total grid quantity.
      */
@@ -92,8 +86,15 @@ interface IGridPositionManager {
      * @param token1Amount Amount of token1 to deposit.
      * @param slippage Maximum allowable slippage for adding liquidity (in basis points, e.g., 100 = 1%).
      * @param gridType The type of grid (NEUTRAL, BUY, SELL).
+     * @param distributionType The type of liquidity distribution (FLAT, CURVED, LINEAR, SIGMOID, FIBONACCI, LOGARITHMIC).
      */
-    function deposit(uint256 token0Amount, uint256 token1Amount, uint256 slippage, GridType gridType) external;
+    function deposit(
+        uint256 token0Amount,
+        uint256 token1Amount,
+        uint256 slippage,
+        GridTickCalculator.GridType gridType,
+        DistributionWeights.DistributionType distributionType
+    ) external;
 
     /**
      * @dev Withdraws all liquidity from active positions.
@@ -105,22 +106,41 @@ interface IGridPositionManager {
      * @dev Compounds collected fees into liquidity for active positions.
      * @param slippage Maximum allowable slippage for adding liquidity (in basis points, e.g., 100 = 1%).
      * @param gridType The type of grid (NEUTRAL, BUY, SELL).
+     * @param distributionType The type of liquidity distribution (FLAT, CURVED, LINEAR, SIGMOID, FIBONACCI, LOGARITHMIC).
      */
-    function compound(uint256 slippage, GridType gridType) external;
+    function compound(
+        uint256 slippage,
+        GridTickCalculator.GridType gridType,
+        DistributionWeights.DistributionType distributionType
+    ) external;
 
     /**
      * @dev Sweeps positions outside the price range and redeposits the collected tokens.
      * @param slippage Maximum allowable slippage for adding liquidity (in basis points, e.g., 100 = 1%).
      * @param gridType The type of grid (NEUTRAL, BUY, SELL).
+     * @param distributionType The type of liquidity distribution (FLAT, CURVED, LINEAR, SIGMOID, FIBONACCI, LOGARITHMIC).
      */
-    function sweep(uint256 slippage, GridType gridType) external;
+    function sweep(
+        uint256 slippage,
+        GridTickCalculator.GridType gridType,
+        DistributionWeights.DistributionType distributionType
+    ) external;
 
     /**
-     * @dev Closes all positions by burning them. Can only be called if activePositionIndexes.length is zero.
-     *      Assumes all positions in the positions array have zero liquidity.
+     * @dev Collects all fees from active positions and the contract available balance and sends them to the owner.
      *      Only callable by the contract owner.
      */
-    function close() external;
+    function withdrawAvailable() external;
+
+    /**
+     * @dev Adds liquidity to an existing position using specified token amounts.
+     * @param tokenId The token ID of the existing position.
+     * @param slippage Maximum allowable slippage for adding liquidity (in basis points, e.g., 100 = 1%).
+     * @param token0Amount Amount of token0 to add.
+     * @param token1Amount Amount of token1 to add.
+     */
+    function addLiquidityToPosition(uint256 tokenId, uint256 slippage, uint256 token0Amount, uint256 token1Amount)
+        external;
 
     /**
      * @dev Sets the grid step size.

@@ -14,6 +14,7 @@ import "./proxy/utils/Initializable.sol";
 import "./access/OwnableUpgradeable.sol";
 import "./security/ReentrancyGuardUpgradeable.sol";
 import "./interfaces/IGridPositionManager.sol";
+import "./libraries/GridTickCalculator.sol";
 
 /**
  * @title GridPositionManager
@@ -27,8 +28,9 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
     struct GridPositionManagerStorage {
         IUniswapV3Pool pool; // Uniswap V3 pool
         INonfungiblePositionManager positionManager; // Position manager for Uniswap V3
-        Position[] positions; // Array of all positions
-        uint256[] activePositionIndexes; // List of indexes for active positions with liquidity
+        // TokenId => Position
+        mapping(uint256 => Position) positions;
+        uint256[] activePositionTokens; // List of indexes for active positions with liquidity
         uint256 gridQuantity; // Total grid quantity
         uint256 gridStep; // Step size for grid prices
         uint256 token0MinFees; // Minimum fees for token0
@@ -56,10 +58,10 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
         public
         initializer
     {
-        require(_pool != address(0), "E01: Invalid pool address");
-        require(_positionManager != address(0), "E02: Invalid position manager address");
-        require(_gridQuantity > 0, "E03: Grid quantity must be greater than 0");
-        require(_gridStep > 0, "E04: Grid step must be greater than 0");
+        require(_pool != address(0), "E01");
+        require(_positionManager != address(0), "E02");
+        require(_gridQuantity > 0 && _gridQuantity <= 1_000, "E03");
+        require(_gridStep > 0 && _gridStep <= 10_000, "E04");
         __Ownable_init();
         __ReentrancyGuard_init();
 
@@ -77,28 +79,31 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
     }
 
     /**
-     * @dev Deposits liquidity into grid positions.
+     * @dev Deposits liquidity into grid positions with a specified distribution type.
      * @param token0Amount Amount of token0 to deposit.
      * @param token1Amount Amount of token1 to deposit.
      * @param slippage Maximum allowable slippage for adding liquidity (in basis points, e.g., 100 = 1%).
      * @param gridType The type of grid (NEUTRAL, BUY, SELL).
+     * @param distributionType The type of liquidity distribution (FLAT, CURVED, LINEAR, SIGMOID, FIBONACCI, LOGARITHMIC).
      */
-    function deposit(uint256 token0Amount, uint256 token1Amount, uint256 slippage, GridType gridType)
-        public
-        override
-        nonReentrant
-        onlyOwner
-    {
-        if (gridType == GridType.NEUTRAL) {
-            require(token0Amount > 0 && token1Amount > 0, "E05: Token amounts must be greater than 0");
-        } else if (gridType == GridType.BUY) {
-            require(token1Amount > 0, "E14: Token1 amount must be zero for BUY grid type");
-        } else if (gridType == GridType.SELL) {
-            require(token0Amount > 0, "E14: Token0 amount must be zero for SELL grid type");
+    function deposit(
+        uint256 token0Amount,
+        uint256 token1Amount,
+        uint256 slippage,
+        GridTickCalculator.GridType gridType,
+        DistributionWeights.DistributionType distributionType
+    ) public override nonReentrant onlyOwner {
+        if (gridType == GridTickCalculator.GridType.NEUTRAL) {
+            require(token0Amount > 0 && token1Amount > 0, "E05");
+        } else if (gridType == GridTickCalculator.GridType.BUY) {
+            require(token1Amount > 0, "E12");
+        } else if (gridType == GridTickCalculator.GridType.SELL) {
+            require(token0Amount > 0, "E13");
         }
-        require(slippage <= 500, "E06: Slippage must be less than or equal to 500 (5%)");
+        require(slippage <= 500, "E06");
 
         GridPositionManagerStorage storage $ = _getStorage();
+
         // Transfer tokens to the contract using TransferHelper
         if (token0Amount > 0) {
             TransferHelper.safeTransferFrom($.pool.token0(), msg.sender, address(this), token0Amount);
@@ -107,96 +112,13 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
             TransferHelper.safeTransferFrom($.pool.token1(), msg.sender, address(this), token1Amount);
         }
 
-        _deposit(slippage, gridType);
+        // Distribute liquidity based on the chosen distribution type
+        _distributeLiquidity(token0Amount, token1Amount, slippage, gridType, distributionType);
     }
 
-    /**
-     * @dev Handles the logic for calculating desired amounts and managing positions.
-     * @param tickLower The lower tick of the grid.
-     * @param tickUpper The upper tick of the grid.
-     * @param currentTick The current tick of the pool.
-     * @param positionsLength The number of positions to be created.
-     * @param slippage Maximum allowable slippage for adding liquidity (in basis points).
-     */
-    function _handlePosition(
-        int24 tickLower,
-        int24 tickUpper,
-        int24 currentTick,
-        uint256 positionsLength,
-        uint256 slippage
-    ) internal {
-        GridPositionManagerStorage storage $ = _getStorage();
-        require(tickLower < tickUpper, "E07: Invalid tick range");
-        require(
-            tickLower % $.pool.tickSpacing() == 0 && tickUpper % $.pool.tickSpacing() == 0,
-            "E08: Ticks must align with spacing"
-        );
-
-        uint256 token0Balance = IERC20Metadata($.pool.token0()).balanceOf(address(this));
-        uint256 token1Balance = IERC20Metadata($.pool.token1()).balanceOf(address(this));
-        uint256 amount0Desired;
-        uint256 amount1Desired;
-
-        if (tickUpper < currentTick) {
-            amount1Desired = token1Balance.div(positionsLength);
-        } else if (tickLower > currentTick) {
-            amount0Desired = token0Balance.div(positionsLength);
-        } else {
-            return; // Skip middle grid
-        }
-
-        // Calculate slippage-adjusted amounts
-        uint256 amount0Slippage = amount0Desired.mul(uint256(10000).sub(slippage)).div(10000);
-        uint256 amount1Slippage = amount1Desired.mul(uint256(10000).sub(slippage)).div(10000);
-
-        // Check if the position already exists
-        (uint256 existingTokenId, uint256 index) = _getPositionFromTicks(tickLower, tickUpper);
-        if (existingTokenId > 0) {
-            _addLiquidityToExistingPosition(
-                existingTokenId, index, amount0Desired, amount1Desired, amount0Slippage, amount1Slippage
-            );
-            return;
-        }
-
-        // Mint a new position
-        _mintNewPosition(tickLower, tickUpper, amount0Desired, amount1Desired, amount0Slippage, amount1Slippage);
-    }
-
-    /**
-     * @dev Withdraws all liquidity from active positions.
-     *      Only callable by the contract owner.
-     */
     function withdraw() external override onlyOwner nonReentrant {
+        _removeActiveLiquidity();
         GridPositionManagerStorage storage $ = _getStorage();
-        while ($.activePositionIndexes.length > 0) {
-            uint256 i = $.activePositionIndexes.length - 1;
-            uint256 index = $.activePositionIndexes[i];
-            uint256 tokenId = $.positions[index].tokenId;
-            uint128 liquidity = $.positions[index].liquidity;
-            $.positionManager.decreaseLiquidity(
-                INonfungiblePositionManager.DecreaseLiquidityParams({
-                    tokenId: tokenId,
-                    liquidity: liquidity,
-                    amount0Min: 0,
-                    amount1Min: 0,
-                    deadline: block.timestamp + 1 hours
-                })
-            );
-
-            $.positionManager.collect(
-                INonfungiblePositionManager.CollectParams({
-                    tokenId: tokenId,
-                    recipient: address(this),
-                    amount0Max: type(uint128).max,
-                    amount1Max: type(uint128).max
-                })
-            );
-
-            // Remove the position from the active positions list
-            _removeActivePosition(i);
-            // Update the position's liquidity to 0
-            $.positions[index].liquidity = 0;
-        }
         uint256 token0Balance = IERC20Metadata($.pool.token0()).balanceOf(address(this));
         uint256 token1Balance = IERC20Metadata($.pool.token1()).balanceOf(address(this));
         if (token0Balance > 0) {
@@ -212,18 +134,22 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
      * @dev Compounds collected fees into liquidity for the closest active position.
      * @param slippage Maximum allowable slippage for adding liquidity (in basis points, e.g., 100 = 1%).
      * @param gridType The type of grid (NEUTRAL, BUY, SELL).
+     * @param distributionType The type of liquidity distribution (FLAT, CURVED, LINEAR, SIGMOID, FIBONACCI, LOGARITHMIC).
      */
-    function compound(uint256 slippage, GridType gridType) external override nonReentrant {
-        require(slippage <= 500, "E06: Slippage must be less than or equal to 500 (5%)");
+    function compound(
+        uint256 slippage,
+        GridTickCalculator.GridType gridType,
+        DistributionWeights.DistributionType distributionType
+    ) external override onlyOwner nonReentrant {
+        require(slippage <= 500, "E06");
 
         GridPositionManagerStorage storage $ = _getStorage();
-        uint256 accumulated0Fees = IERC20Metadata($.pool.token0()).balanceOf(address(this));
-        uint256 accumulated1Fees = IERC20Metadata($.pool.token1()).balanceOf(address(this));
-        uint256 activePositions = $.activePositionIndexes.length;
+        uint256 accumulated0Fees = 0;
+        uint256 accumulated1Fees = 0;
+        uint256 length = $.activePositionTokens.length;
 
-        for (uint256 i = 0; i < activePositions; i++) {
-            uint256 index = $.activePositionIndexes[i];
-            uint256 tokenId = $.positions[index].tokenId;
+        for (uint256 i = 0; i < length; i++) {
+            uint256 tokenId = $.activePositionTokens[i];
 
             // Collect fees
             (uint256 amount0Collected, uint256 amount1Collected) = $.positionManager.collect(
@@ -240,8 +166,11 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
 
         // Check if there are any fees to compound
         if (accumulated0Fees > $.token0MinFees || accumulated1Fees > $.token1MinFees) {
-            _deposit(slippage, gridType);
+            _distributeLiquidity(accumulated0Fees, accumulated1Fees, slippage, gridType, distributionType);
             emit Compound(msg.sender, accumulated0Fees, accumulated1Fees);
+        } else {
+            // If no fees are available, revert the transaction
+            revert("E09");
         }
     }
 
@@ -249,82 +178,95 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
      * @dev Sweeps positions outside the price range and redeposits the collected tokens.
      * @param slippage Maximum allowable slippage for adding liquidity (in basis points, e.g., 100 = 1%).
      * @param gridType The type of grid (NEUTRAL, BUY, SELL).
+     * @param distributionType The type of liquidity distribution (FLAT, CURVED, LINEAR, SIGMOID, FIBONACCI, LOGARITHMIC).
      */
-    function sweep(uint256 slippage, GridType gridType) external override {
-        require(slippage <= 500, "E06: Slippage must be less than or equal to 500 (5%)");
+    function sweep(
+        uint256 slippage,
+        GridTickCalculator.GridType gridType,
+        DistributionWeights.DistributionType distributionType
+    ) external override onlyOwner nonReentrant {
+        require(slippage <= 500, "E06");
         GridPositionManagerStorage storage $ = _getStorage();
         // Fetch the current pool tick
-        (, int24 currentTick,,,,,) = $.pool.slot0();
+        int24 currentTick = _getCurrentTick();
         int24 averageTick = _getTWAP();
         _validatePrice(currentTick, averageTick, 100); // Allow max deviation of 100 ticks
-
-        int24 tickRange = int24($.gridQuantity / 2) * int24($.gridStep);
-        int24 lowerBound = currentTick - tickRange;
-        int24 upperBound = currentTick + tickRange;
-        for (uint256 i = 0; i < $.activePositionIndexes.length; i++) {
-            uint256 index = $.activePositionIndexes[i];
-            uint256 tokenId = $.positions[index].tokenId;
-            int24 tickLower = $.positions[index].tickLower;
-            int24 tickUpper = $.positions[index].tickUpper;
-            uint128 liquidity = $.positions[index].liquidity;
-
-            // Check if the position is outside the tick range
-            if (tickUpper < lowerBound || tickLower > upperBound) {
-                // Remove liquidity from the position
-                $.positionManager.decreaseLiquidity(
-                    INonfungiblePositionManager.DecreaseLiquidityParams({
-                        tokenId: tokenId,
-                        liquidity: liquidity,
-                        amount0Min: 0,
-                        amount1Min: 0,
-                        deadline: block.timestamp + 1 hours
-                    })
-                );
-
-                // Collect fees and tokens
-                $.positionManager.collect(
-                    INonfungiblePositionManager.CollectParams({
-                        tokenId: tokenId,
-                        recipient: address(this),
-                        amount0Max: type(uint128).max,
-                        amount1Max: type(uint128).max
-                    })
-                );
-
-                // Remove the position from the active positions list
-                _removeActivePosition(i);
-                i--; // Adjust index after removal
-
-                // Update the position's liquidity to 0
-                $.positions[index].liquidity = 0;
-            }
-        }
-
-        uint256 accumulated0Fees = IERC20Metadata($.pool.token0()).balanceOf(address(this));
-        uint256 accumulated1Fees = IERC20Metadata($.pool.token1()).balanceOf(address(this));
-        if (accumulated0Fees > $.token0MinFees || accumulated1Fees > $.token1MinFees) {
-            _deposit(slippage, gridType);
+        _removeActiveLiquidity();
+        uint256 token0Balance = IERC20Metadata($.pool.token0()).balanceOf(address(this));
+        uint256 token1Balance = IERC20Metadata($.pool.token1()).balanceOf(address(this));
+        if (token0Balance > $.token0MinFees || token1Balance > $.token1MinFees) {
+            _distributeLiquidity(token0Balance, token1Balance, slippage, gridType, distributionType);
+        } else {
+            // If no tokens are available, revert the transaction
+            revert("E09");
         }
     }
 
     /**
-     * @dev Closes all positions by burning them. Can only be called if activePositionIndexes.length is zero.
-     *      Assumes all positions in the positions array have zero liquidity.
+     * @dev Collects all fees from active positions and the contract available balance and sends them to the owner.
      *      Only callable by the contract owner.
      */
-    function close() external override onlyOwner nonReentrant {
+    function withdrawAvailable() external override onlyOwner nonReentrant {
         GridPositionManagerStorage storage $ = _getStorage();
-        require($.activePositionIndexes.length == 0, "E12: Active positions must be zero");
+        uint256 length = $.activePositionTokens.length;
+        for (uint256 i = 0; i < length; i++) {
+            uint256 tokenId = $.activePositionTokens[i];
 
-        for (uint256 i = 0; i < $.positions.length; i++) {
-            uint256 tokenId = $.positions[i].tokenId;
-
-            // Burn the position
-            $.positionManager.burn(tokenId);
+            // Collect fees from the position
+            $.positionManager.collect(
+                INonfungiblePositionManager.CollectParams({
+                    tokenId: tokenId,
+                    recipient: address(this),
+                    amount0Max: type(uint128).max,
+                    amount1Max: type(uint128).max
+                })
+            );
         }
 
-        // Clear the positions array
-        delete $.positions;
+        uint256 token0Available = IERC20Metadata($.pool.token0()).balanceOf(address(this));
+        uint256 token1Available = IERC20Metadata($.pool.token1()).balanceOf(address(this));
+        if (token0Available > 0) {
+            TransferHelper.safeTransfer($.pool.token0(), msg.sender, token0Available);
+        }
+        if (token1Available > 0) {
+            TransferHelper.safeTransfer($.pool.token1(), msg.sender, token1Available);
+        }
+
+        emit Withdraw(msg.sender, token0Available, token1Available);
+    }
+
+    /**
+     * @dev Adds liquidity to an existing position using specified token amounts.
+     * @param tokenId The token ID of the existing position.
+     * @param slippage Maximum allowable slippage for adding liquidity (in basis points, e.g., 100 = 1%).
+     * @param token0Amount Amount of token0 to add.
+     * @param token1Amount Amount of token1 to add.
+     */
+    function addLiquidityToPosition(uint256 tokenId, uint256 slippage, uint256 token0Amount, uint256 token1Amount)
+        external
+        override
+        onlyOwner
+        nonReentrant
+    {
+        require(slippage <= 500, "E06");
+        require(token0Amount > 0 || token1Amount > 0, "E14");
+        GridPositionManagerStorage storage $ = _getStorage();
+        require($.positions[tokenId].tokenId > 0, "E11");
+
+        // Transfer tokens to the contract using TransferHelper
+        if (token0Amount > 0) {
+            TransferHelper.safeTransferFrom($.pool.token0(), msg.sender, address(this), token0Amount);
+        }
+        if (token1Amount > 0) {
+            TransferHelper.safeTransferFrom($.pool.token1(), msg.sender, address(this), token1Amount);
+        }
+
+        // Calculate slippage
+        uint256 amount0Min = token0Amount.mul(uint256(10_000).sub(slippage)).div(10_000);
+        uint256 amount1Min = token1Amount.mul(uint256(10_000).sub(slippage)).div(10_000);
+
+        // Add liquidity to the existing position
+        _addLiquidityToExistingPosition(tokenId, token0Amount, token1Amount, amount0Min, amount1Min);
     }
 
     /**
@@ -334,7 +276,7 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
      */
     function setGridStep(uint256 _newGridStep) external override onlyOwner {
         GridPositionManagerStorage storage $ = _getStorage();
-        require(_newGridStep > 0 && _newGridStep < 10000, "E09: Grid step must be between 1 and 9999");
+        require(_newGridStep > 0 && _newGridStep < 10_000, "E04");
         $.gridStep = _newGridStep;
         emit GridStepUpdated(_newGridStep);
     }
@@ -346,7 +288,7 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
      */
     function setGridQuantity(uint256 _newGridQuantity) external override onlyOwner {
         GridPositionManagerStorage storage $ = _getStorage();
-        require(_newGridQuantity > 0 && _newGridQuantity < 10000, "E10: Grid quantity must be between 1 and 9999");
+        require(_newGridQuantity > 0 && _newGridQuantity <= 1_000, "E03");
         $.gridQuantity = _newGridQuantity;
         emit GridQuantityUpdated(_newGridQuantity);
     }
@@ -370,7 +312,7 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
      */
     function getPositionsLength() external view override returns (uint256) {
         GridPositionManagerStorage storage $ = _getStorage();
-        return $.positions.length;
+        return $.activePositionTokens.length;
     }
 
     /**
@@ -379,32 +321,96 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
      */
     function getActivePositionIndexes() external view override returns (uint256[] memory) {
         GridPositionManagerStorage storage $ = _getStorage();
-        return $.activePositionIndexes;
+        return $.activePositionTokens;
     }
 
-    function _deposit(uint256 slippage, GridType gridType) internal {
-        GridPositionManagerStorage storage $ = _getStorage();
-        // Fetch the current pool tick
-        (, int24 currentTick,,,,,) = $.pool.slot0();
-        int24 averageTick = _getTWAP();
-        _validatePrice(currentTick, averageTick, 100); // Allow max deviation of 100 ticks
+    /**
+     * @dev Distributes liquidity across grid positions based on the chosen distribution type.
+     * @param token0Amount Amount of token0 to distribute.
+     * @param token1Amount Amount of token1 to distribute.
+     * @param slippage Maximum allowable slippage for adding liquidity.
+     * @param gridType The type of grid (NEUTRAL, BUY, SELL).
+     * @param distributionType The type of liquidity distribution.
+     */
+    function _distributeLiquidity(
+        uint256 token0Amount,
+        uint256 token1Amount,
+        uint256 slippage,
+        GridTickCalculator.GridType gridType,
+        DistributionWeights.DistributionType distributionType
+    ) internal {
+        int24 currentTick = _getCurrentTick();
         int24[] memory gridTicks = _calculateGridTicks(currentTick, gridType);
-        require(gridTicks.length > 2, "E07: Invalid tick range");
-
-        uint256 gridLength = gridTicks.length - 1;
-        uint256 positionsLength = gridType == GridType.NEUTRAL ? gridLength.div(2) : gridLength;
-
-        for (uint256 i = 0; i < gridLength; i++) {
-            _handlePosition(
-                gridTicks[i], gridTicks[i + 1], currentTick, positionsLength - (i % positionsLength), slippage
-            );
+        uint256 gridLength = gridTicks.length;
+        uint256 positionsLength = gridType == GridTickCalculator.GridType.NEUTRAL ? gridLength.div(2) : gridLength;
+        uint256[] memory distributionWeights = DistributionWeights.getWeights(positionsLength, distributionType);
+        for (uint256 i = 0; i < gridLength - 1; i++) {
+            uint256 weightIndex = (i >= positionsLength) ? gridLength - 2 - i : i;
+            PositionParams memory params = PositionParams({
+                tickLower: gridTicks[i],
+                tickUpper: gridTicks[i + 1],
+                currentTick: currentTick,
+                slippage: slippage,
+                token0Amount: token0Amount,
+                token1Amount: token1Amount,
+                weight: distributionWeights[weightIndex]
+            });
+            _handlePosition(params);
         }
+    }
+
+    /**
+     * @dev Handles the position creation and liquidity addition.
+     * @param params The parameters for the position.
+     */
+    function _handlePosition(PositionParams memory params) internal {
+        GridPositionManagerStorage storage $ = _getStorage();
+        require(params.tickLower % $.pool.tickSpacing() == 0 && params.tickUpper % $.pool.tickSpacing() == 0, "E08");
+
+        uint256 amount0Desired = params.token0Amount.mul(params.weight).div(10_000);
+        uint256 amount1Desired = params.token1Amount.mul(params.weight).div(10_000);
+        uint256 token0Available = IERC20Metadata($.pool.token0()).balanceOf(address(this));
+        uint256 token1Available = IERC20Metadata($.pool.token1()).balanceOf(address(this));
+        amount0Desired = amount0Desired > token0Available ? token0Available : amount0Desired;
+        amount1Desired = amount1Desired > token1Available ? token1Available : amount1Desired;
+
+        if (params.tickUpper < params.currentTick) {
+            amount0Desired = 0;
+        } else if (params.tickLower > params.currentTick) {
+            amount1Desired = 0;
+        }
+        if (amount0Desired == 0 && amount1Desired == 0) {
+            // no tokens are needed
+            return;
+        }
+        uint256 amount0Slippage = amount0Desired.mul(uint256(10_000).sub(params.slippage)).div(10_000);
+        uint256 amount1Slippage = amount1Desired.mul(uint256(10_000).sub(params.slippage)).div(10_000);
+        if (amount0Desired > 0 && amount1Desired > 0) {
+            // both tokens are needed
+            amount0Slippage = 0;
+            amount1Slippage = 0;
+        }
+        // Check if the desired amounts are valid
+        if (_calculateLiquidity(amount0Desired, amount1Desired, params.tickLower, params.tickUpper) == 0) {
+            return;
+        }
+
+        (uint256 existingTokenId) = _getPositionFromTicks(params.tickLower, params.tickUpper);
+        if (existingTokenId > 0) {
+            _addLiquidityToExistingPosition(
+                existingTokenId, amount0Desired, amount1Desired, amount0Slippage, amount1Slippage
+            );
+            return;
+        }
+
+        _mintNewPosition(
+            params.tickLower, params.tickUpper, amount0Desired, amount1Desired, amount0Slippage, amount1Slippage
+        );
     }
 
     /**
      * @dev Adds liquidity to an existing position.
      * @param tokenId The token ID of the existing position.
-     * @param index The index of the position in the positions array.
      * @param amount0Desired Desired amount of token0.
      * @param amount1Desired Desired amount of token1.
      * @param amount0Min Minimum amount of token0 (after slippage).
@@ -412,7 +418,6 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
      */
     function _addLiquidityToExistingPosition(
         uint256 tokenId,
-        uint256 index,
         uint256 amount0Desired,
         uint256 amount1Desired,
         uint256 amount0Min,
@@ -429,11 +434,9 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
                 deadline: block.timestamp + 1 hours
             })
         );
-        $.positions[index].liquidity += newLiquidity;
-        if (!_isActivePosition(index)) {
-            $.activePositionIndexes.push(index);
-        }
-        emit Deposit(msg.sender, amount0, amount1);
+        $.positions[tokenId].liquidity += newLiquidity;
+        emit GridDeposit(msg.sender, amount0, amount1);
+        assert(amount0 > 0 || amount1 > 0); // Ensure at least one token is deposited
     }
 
     /**
@@ -454,6 +457,7 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
         uint256 amount1Min
     ) internal {
         GridPositionManagerStorage storage $ = _getStorage();
+        require($.activePositionTokens.length + 1 <= 1_000, "E07");
         (uint256 tokenId, uint128 liquidity, uint256 amount0, uint256 amount1) = $.positionManager.mint(
             INonfungiblePositionManager.MintParams({
                 token0: $.pool.token0(),
@@ -471,19 +475,56 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
         );
 
         // Store the position in the array
-        $.positions.push(
-            Position({
+        $.positions[tokenId] =
+            Position({tokenId: tokenId, tickLower: tickLower, tickUpper: tickUpper, liquidity: liquidity});
+
+        // Add the new position to the active positions list
+        $.activePositionTokens.push(tokenId); // Use positions.length - 1 directly
+        emit GridDeposit(msg.sender, amount0, amount1);
+        assert(amount0 > 0 || amount1 > 0); // Ensure at least one token is deposited
+    }
+
+    /**
+     * @dev Decreases liquidity and collects tokens for a given position.
+     * @param tokenId The token ID of the position.
+     * @param liquidity The amount of liquidity to decrease.
+     */
+    function _decreaseLiquidityAndCollect(uint256 tokenId, uint128 liquidity) internal {
+        GridPositionManagerStorage storage $ = _getStorage();
+        $.positionManager.decreaseLiquidity(
+            INonfungiblePositionManager.DecreaseLiquidityParams({
                 tokenId: tokenId,
-                tickLower: tickLower,
-                tickUpper: tickUpper,
                 liquidity: liquidity,
-                index: $.positions.length
+                amount0Min: 0,
+                amount1Min: 0,
+                deadline: block.timestamp + 1 hours
             })
         );
 
-        // Add the new position to the active positions list
-        $.activePositionIndexes.push($.positions.length - 1); // Use positions.length - 1 directly
-        emit Deposit(msg.sender, amount0, amount1);
+        $.positionManager.collect(
+            INonfungiblePositionManager.CollectParams({
+                tokenId: tokenId,
+                recipient: address(this),
+                amount0Max: type(uint128).max,
+                amount1Max: type(uint128).max
+            })
+        );
+    }
+
+    /**
+     * @dev Removes all active liquidity positions.
+     */
+    function _removeActiveLiquidity() internal {
+        GridPositionManagerStorage storage $ = _getStorage();
+        uint256 length = $.activePositionTokens.length;
+        for (uint256 i = 0; i < length; i++) {
+            Position memory position = $.positions[$.activePositionTokens[i]];
+            // Collect fees from the position
+            _decreaseLiquidityAndCollect(position.tokenId, position.liquidity);
+            // Update the position's liquidity to 0
+            delete $.positions[position.tokenId];
+        }
+        delete $.activePositionTokens;
     }
 
     /**
@@ -493,112 +534,34 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
      * @param gridType The type of grid (NEUTRAL, BUY, SELL).
      * @return An array of grid ticks.
      */
-    function _calculateGridTicks(int24 targetTick, GridType gridType) internal view returns (int24[] memory) {
+    function _calculateGridTicks(int24 targetTick, GridTickCalculator.GridType gridType)
+        internal
+        view
+        returns (int24[] memory)
+    {
         GridPositionManagerStorage storage $ = _getStorage();
-        require($.gridQuantity > 0, "E03: Grid quantity must be greater than 0");
-
-        // Fetch the tick spacing from the pool
-        int24 tickSpacing = $.pool.tickSpacing() * int24($.gridStep);
-        require(tickSpacing > 0, "E04: Grid step must be greater than 0");
-
-        int24 tickRange = int24(gridType == GridType.NEUTRAL ? $.gridQuantity / 2 : $.gridQuantity) * tickSpacing;
-
-        // Ensure the lower and upper ticks are aligned with the tick spacing
-        int24 lowerTick = targetTick - tickRange;
-        if (gridType == GridType.SELL) {
-            lowerTick = targetTick;
-        }
-        lowerTick = lowerTick - (lowerTick % tickSpacing);
-
-        int24 upperTick = targetTick + tickRange;
-        if (gridType == GridType.BUY) {
-            upperTick = targetTick;
-        }
-        upperTick = upperTick - (upperTick % tickSpacing);
-
-        uint256 gridCount = uint256((upperTick - lowerTick) / tickSpacing);
-        require(gridCount > 1, "E07: Invalid tick range");
-
-        int24[] memory gridTicks = new int24[](gridCount);
-        int24 currentTick = lowerTick;
-        uint256 index = 0;
-
-        for (uint256 i = 0; i < gridCount; i++) {
-            if (currentTick < targetTick && currentTick + tickSpacing > targetTick) {
-                // Skip the grid that overlaps with the target tick
-                currentTick += tickSpacing;
-                continue;
-            }
-            gridTicks[index] = currentTick;
-            currentTick += tickSpacing;
-            index++;
-        }
-
-        // Resize the array to exclude unused slots
-        assembly {
-            mstore(gridTicks, index)
-        }
-
-        return gridTicks;
+        return GridTickCalculator.calculateGridTicks(
+            targetTick, gridType, $.gridQuantity, $.gridStep, $.pool.tickSpacing()
+        );
     }
 
     /**
      * @dev Finds a position by its lower and upper ticks.
      * @param tickLower The lower tick of the position.
      * @param tickUpper The upper tick of the position.
-     * @return The token ID and index of the position.
+     * @return The token ID the position.
      */
-    function _getPositionFromTicks(int24 tickLower, int24 tickUpper) internal view returns (uint256, uint256) {
+    function _getPositionFromTicks(int24 tickLower, int24 tickUpper) internal view returns (uint256) {
         GridPositionManagerStorage storage $ = _getStorage();
-        for (uint256 i = 0; i < $.positions.length; i++) {
-            if ($.positions[i].tickLower == tickLower && $.positions[i].tickUpper == tickUpper) {
-                return ($.positions[i].tokenId, i);
+        uint256 lenght = $.activePositionTokens.length;
+        for (uint256 i = 0; i < lenght; i++) {
+            uint256 tokenId = $.activePositionTokens[i];
+            Position memory position = $.positions[tokenId];
+            if (position.tickLower == tickLower && position.tickUpper == tickUpper) {
+                return tokenId;
             }
         }
-        return (0, 0);
-    }
-
-    /**
-     * @dev Calculates the square root of a number.
-     * @param x The number to calculate the square root of.
-     * @return The square root of the number.
-     */
-    function sqrt(uint256 x) internal pure returns (uint256) {
-        uint256 z = (x + 1) / 2;
-        uint256 y = x;
-        while (z < y) {
-            y = z;
-            z = (x / z + z) / 2;
-        }
-        return y;
-    }
-
-    /**
-     * @dev Removes an active position by its index.
-     * @param index The index of the position to remove.
-     */
-    function _removeActivePosition(uint256 index) internal {
-        GridPositionManagerStorage storage $ = _getStorage();
-        if (index < $.activePositionIndexes.length - 1) {
-            $.activePositionIndexes[index] = $.activePositionIndexes[$.activePositionIndexes.length - 1];
-        }
-        $.activePositionIndexes.pop();
-    }
-
-    /**
-     * @dev Checks if a position is active.
-     * @param index The index of the position to check.
-     * @return True if the position is active, false otherwise.
-     */
-    function _isActivePosition(uint256 index) internal view returns (bool) {
-        GridPositionManagerStorage storage $ = _getStorage();
-        uint256 length = $.activePositionIndexes.length;
-        for (uint256 i = 0; i < length; i++) {
-            if ($.activePositionIndexes[i] == index) {
-                return true;
-            }
-        }
-        return false;
+        return 0;
     }
 
     /**
@@ -615,16 +578,6 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
         revert("Function not supported");
     }
 
-    function getPool() external view override returns (address) {
-        GridPositionManagerStorage storage $ = _getStorage();
-        return address($.pool);
-    }
-
-    function getPositionManager() external view override returns (address) {
-        GridPositionManagerStorage storage $ = _getStorage();
-        return address($.positionManager);
-    }
-
     function getGridQuantity() external view override returns (uint256) {
         GridPositionManagerStorage storage $ = _getStorage();
         return $.gridQuantity;
@@ -635,17 +588,16 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
         return $.gridStep;
     }
 
-    function getPosition(uint256 index) external view override returns (Position memory) {
+    function getPosition(uint256 tokenId) external view override returns (Position memory) {
         GridPositionManagerStorage storage $ = _getStorage();
-        require(index < $.positions.length, "E15: Index out of bounds");
-        return $.positions[index];
+        return $.positions[tokenId];
     }
 
     function getActivePositions() external view override returns (Position[] memory) {
         GridPositionManagerStorage storage $ = _getStorage();
-        Position[] memory activePositions = new Position[]($.activePositionIndexes.length);
-        for (uint256 i = 0; i < $.activePositionIndexes.length; i++) {
-            activePositions[i] = $.positions[$.activePositionIndexes[i]];
+        Position[] memory activePositions = new Position[]($.activePositionTokens.length);
+        for (uint256 i = 0; i < $.activePositionTokens.length; i++) {
+            activePositions[i] = $.positions[$.activePositionTokens[i]];
         }
         return activePositions;
     }
@@ -679,9 +631,10 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
     function getLiquidity() external view override returns (uint256 token0Liquidity, uint256 token1Liquidity) {
         GridPositionManagerStorage storage $ = _getStorage();
         (uint160 sqrtPriceX96,,,,,,) = $.pool.slot0();
-        for (uint256 i = 0; i < $.activePositionIndexes.length; i++) {
-            uint256 index = $.activePositionIndexes[i];
-            Position memory position = $.positions[index];
+        uint256 length = $.activePositionTokens.length;
+        for (uint256 i = 0; i < length; i++) {
+            uint256 tokenId = $.activePositionTokens[i];
+            Position memory position = $.positions[tokenId];
             uint160 sqrtPriceLowerX96 = TickMath.getSqrtRatioAtTick(position.tickLower);
             uint160 sqrtPriceUpperX96 = TickMath.getSqrtRatioAtTick(position.tickUpper);
 
@@ -699,11 +652,11 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
      */
     function isInRange() external view override returns (bool) {
         GridPositionManagerStorage storage $ = _getStorage();
-        (, int24 currentTick,,,,,) = $.pool.slot0();
+        int24 currentTick = _getCurrentTick();
 
-        for (uint256 i = 0; i < $.activePositionIndexes.length; i++) {
-            uint256 index = $.activePositionIndexes[i];
-            Position memory position = $.positions[index];
+        for (uint256 i = 0; i < $.activePositionTokens.length; i++) {
+            uint256 tokenId = $.activePositionTokens[i];
+            Position memory position = $.positions[tokenId];
             if (currentTick >= position.tickLower && currentTick <= position.tickUpper) {
                 return true;
             }
@@ -717,18 +670,17 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
      */
     function recoverEther() external onlyOwner nonReentrant {
         uint256 balance = address(this).balance;
-        require(balance > 0, "E13: No Ether to recover");
+        require(balance > 0, "E09");
         (bool success,) = msg.sender.call{value: balance}("");
         require(success, "Ether transfer failed");
     }
 
     /**
      * @dev Fetches the Time Weighted Average Price (TWAP) tick over a given time window.
-     * @param secondsAgo The time window in seconds for calculating the TWAP.
      * @return averageTick The average tick over the specified time window.
      */
-    function _getTWAP(int24 secondsAgo) internal view returns (int24 averageTick) {
-        require(secondsAgo > 0, "E11: Invalid time window");
+    function _getTWAP() internal view returns (int24 averageTick) {
+        int24 secondsAgo = int24(300); // 5 minutes
 
         GridPositionManagerStorage storage $ = _getStorage();
         // Fetch the current and historical tick data
@@ -749,14 +701,6 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
     }
 
     /**
-     * @dev Fetches the Time Weighted Average Price (TWAP) tick over the default time window.
-     * @return The average tick over the default time window.
-     */
-    function _getTWAP() internal view returns (int24) {
-        return _getTWAP(int24(300)); // Default time window of 5 minutes
-    }
-
-    /**
      * @dev Validates the price deviation between the current tick and TWAP tick.
      * @param currentTick The current tick of the pool.
      * @param twapTick The TWAP tick of the pool.
@@ -764,6 +708,27 @@ contract GridPositionManager is Initializable, OwnableUpgradeable, ReentrancyGua
      */
     function _validatePrice(int24 currentTick, int24 twapTick, uint256 maxDeviation) internal pure {
         int24 deviation = currentTick > twapTick ? currentTick - twapTick : twapTick - currentTick;
-        require(deviation <= int24(maxDeviation), "E14: Price deviation too high");
+        require(deviation <= int24(maxDeviation), "E10");
+    }
+
+    function _getCurrentTick() internal view returns (int24) {
+        GridPositionManagerStorage storage $ = _getStorage();
+        (, int24 currentTick,,,,,) = $.pool.slot0();
+        return currentTick;
+    }
+
+    function _calculateLiquidity(uint256 amount0Desired, uint256 amount1Desired, int24 tickLower, int24 tickUpper)
+        internal
+        view
+        returns (uint128 liquidity)
+    {
+        GridPositionManagerStorage storage $ = _getStorage();
+        (uint160 sqrtPriceX96,,,,,,) = $.pool.slot0();
+        uint160 sqrtRatioAX96 = TickMath.getSqrtRatioAtTick(tickLower);
+        uint160 sqrtRatioBX96 = TickMath.getSqrtRatioAtTick(tickUpper);
+
+        liquidity = LiquidityAmounts.getLiquidityForAmounts(
+            sqrtPriceX96, sqrtRatioAX96, sqrtRatioBX96, amount0Desired, amount1Desired
+        );
     }
 }

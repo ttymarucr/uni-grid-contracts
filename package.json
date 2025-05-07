@@ -6,7 +6,6 @@
   "private": false,
   "scripts": {
     "test": "npx hardhat test --parallel",
-    "test:tenderly": "TENDERLY_AUTOMATIC_VERIFICATION=true npx hardhat test --network virtual_base",
     "build": "npx hardhat compile",
     "coverage": "SOLIDITY_COVERAGE=true npx hardhat coverage",
     "coverage:report": "npx hardhat coverage --reporter text-summary",
@@ -18,7 +17,7 @@
     "@nomicfoundation/hardhat-ethers": "^3.0.8",
     "@nomicfoundation/hardhat-ignition": "^0.15.10",
     "@nomicfoundation/hardhat-ignition-viem": "^0.15.0",
-    "@nomicfoundation/hardhat-network-helpers": "^1.0.0",
+    "@nomicfoundation/hardhat-network-helpers": "^1.0.12",
     "@nomicfoundation/hardhat-toolbox-viem": "^3.0.0",
     "@nomicfoundation/hardhat-verify": "^2.0.0",
     "@nomicfoundation/hardhat-viem": "^2.0.0",
@@ -42,6 +41,7 @@
     "viem": "^2.7.6"
   },
   "dependencies": {
+    "@prb/math": "^4.1.0",
     "@uniswap/v3-core": "^1.0.1",
     "@uniswap/v3-periphery": "^1.4.4",
     "openzeppelin-contracts": "^4.0.0"
